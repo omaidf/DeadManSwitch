@@ -98,7 +98,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
           </p>
         </div>
         <div className={`px-3 py-1 rounded-full text-sm border ${getStatusBadge()}`}>
-          {isExpired ? 'EXPIRED' : account.active ? 'ACTIVE' : 'INACTIVE'}
+          {isExpired ? 'EXPIRED' : 'ACTIVE'}
         </div>
       </div>
 
@@ -219,11 +219,7 @@ export const ViewLocksPage: FC = () => {
   }).length
   const activeCount = switches.filter(s => {
     const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
-    return !calc.isExpired && s.account.active
-  }).length
-  const inactiveCount = switches.filter(s => {
-    const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
-    return !calc.isExpired && !s.account.active
+    return !calc.isExpired
   }).length
 
   return (
@@ -251,7 +247,7 @@ export const ViewLocksPage: FC = () => {
       {switches.length > 0 ? (
         <>
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 text-center">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 text-center">
             <div className="glassmorphism p-4">
               <p className="text-2xl font-bold text-purple-400">{switches.length}</p>
               <p className="text-sm text-gray-300">Latest Switches</p>
@@ -259,10 +255,6 @@ export const ViewLocksPage: FC = () => {
             <div className="glassmorphism p-4">
               <p className="text-2xl font-bold text-green-400">{activeCount}</p>
               <p className="text-sm text-gray-300">Active</p>
-            </div>
-            <div className="glassmorphism p-4">
-              <p className="text-2xl font-bold text-gray-400">{inactiveCount}</p>
-              <p className="text-sm text-gray-300">Inactive</p>
             </div>
             <div className="glassmorphism p-4">
               <p className="text-2xl font-bold text-red-400">{expiredCount}</p>

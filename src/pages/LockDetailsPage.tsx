@@ -340,7 +340,7 @@ export const LockDetailsPage: FC = () => {
               <div>
                 <label className="text-sm text-gray-400">Status</label>
                 <div className={`font-medium ${getStatusColor()}`}>
-                  {account.active ? getStatusText() : 'INACTIVE'}
+                  {getStatusText()}
                 </div>
               </div>
               
@@ -406,8 +406,8 @@ export const LockDetailsPage: FC = () => {
 
           {/* Action Buttons */}
           <div className="space-y-3">
-            {/* Ping Button - only for owner on active switches */}
-            {isOwner && account.active && !isExpired && (
+                    {/* Ping Button - only for owner on non-expired switches */}
+        {isOwner && !isExpired && (
               <button
                 onClick={handlePing}
                 disabled={isPinging}

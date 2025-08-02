@@ -46,7 +46,7 @@ export const CreatePage = () => {
   const wallet = useWallet()
   const { connected } = wallet
   const programHook = useProgram()
-  const { createSwitch, checkUserHasSwitches } = programHook
+  const { createSwitch } = programHook
   const { encryptMessage, connectionStatus } = useLitProtocol()
   
   const [message, setMessage] = useState('')
@@ -56,7 +56,6 @@ export const CreatePage = () => {
   const [success, setSuccess] = useState(false)
   const [txSignature, setTxSignature] = useState<string | null>(null)
   const [showToast, setShowToast] = useState(false)
-  const [isFirstTimeUser, setIsFirstTimeUser] = useState<boolean | null>(null)
   const isMountedRef = useRef(true)
 
   useEffect(() => {
@@ -65,25 +64,6 @@ export const CreatePage = () => {
     }
   }, [])
 
-  // Check if user is a first-time user
-  useEffect(() => {
-    const checkFirstTimeUser = async () => {
-      if (!connected) {
-        setIsFirstTimeUser(null)
-        return
-      }
-
-      try {
-        const hasSwitches = await checkUserHasSwitches()
-        setIsFirstTimeUser(!hasSwitches)
-      } catch (error) {
-        console.error('Failed to check user switches:', error)
-        setIsFirstTimeUser(false) // Default to not first-time on error
-      }
-    }
-
-    checkFirstTimeUser()
-  }, [connected]) // Only depend on connected to prevent loops
 
   /**
    * Handles the form submission for creating a new Dead Man's Switch.
@@ -108,14 +88,9 @@ export const CreatePage = () => {
     let intervalSeconds = interval * 3600
     const messageBytes = getMessageByteLength(message)
     
-    // Special handling for 1-minute interval (only for first-time users)
+    // Normalize 1-minute option (stored as 1/60 hours)
     if (Math.abs(interval - 1/60) < 0.0001) {
-      if (!isFirstTimeUser) {
-        setError('1-minute interval is only available for first-time users')
-        setIsCreating(false)
-        return
-      }
-      intervalSeconds = 60 // Override to 60 seconds for 1-minute option
+      intervalSeconds = 60; // 60 seconds
     }
     
     if (intervalSeconds < MIN_PING_INTERVAL) {
@@ -424,9 +399,7 @@ export const CreatePage = () => {
             onChange={(e) => setInterval(Number(e.target.value))}
             className="w-full px-4 py-3 bg-gray-800/50 border border-gray-600/50 rounded-lg text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
           >
-            {isFirstTimeUser && (
-              <option value={1/60}>1 Minute (First-time users only)</option>
-            )}
+            <option value={1/60}>1 Minute</option>
             <option value={1}>1 Hour</option>
             <option value={6}>6 Hours</option>
             <option value={12}>12 Hours</option>
@@ -437,11 +410,6 @@ export const CreatePage = () => {
           </select>
           <p className="text-xs text-white mt-2">
             How often you need to check in to keep your secret safe.
-            {isFirstTimeUser && (
-              <span className="block text-purple-300 mt-1">
-                🎉 As a first-time user, you can try the 1-minute interval!
-              </span>
-            )}
           </p>
         </div>
 

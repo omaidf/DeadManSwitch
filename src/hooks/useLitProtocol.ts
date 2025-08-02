@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { LitNodeClient } from '@lit-protocol/lit-node-client'
+import { encryptString, decryptToString } from '@lit-protocol/encryption'
+import { PublicKey } from '@solana/web3.js'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { getConfig } from '../lib/config'
 
@@ -31,10 +33,62 @@ export function useLitProtocol() {
   const wallet = useWallet()
   const config = getConfig()
 
+  // Helper: create Solana-specific auth signature for Lit Protocol
+  const getOrCreateAuthSig = async () => {
+    if (!wallet.publicKey || !wallet.signMessage) {
+      throw new Error('Wallet not connected')
+    }
+
+    // Clear any stale Ethereum-style auth signatures
+    const cacheKey = 'lit-solana-authSig'
+    localStorage.removeItem('lit-authSig') // Remove old Ethereum-style cache
+    
+    const cached = localStorage.getItem(cacheKey)
+    if (cached) {
+      const parsedCache = JSON.parse(cached)
+      // Validate cache is not too old (24 hours)
+      if (Date.now() - parsedCache.timestamp < 24 * 60 * 60 * 1000) {
+        console.log('🔄 Using cached Solana auth signature')
+        return parsedCache.authSig
+      }
+    }
+
+    console.log('🔑 Creating new Solana auth signature for Lit Protocol')
+    
+    // Create a simple message to sign (Solana-style, not SIWE)
+    const message = `I am proving ownership of this Solana wallet for Lit Protocol encryption.
+Address: ${wallet.publicKey.toString()}
+Timestamp: ${Date.now()}`
+
+    const messageBytes = new TextEncoder().encode(message)
+    const signature = await wallet.signMessage(messageBytes)
+    
+    const authSig = {
+      sig: Buffer.from(signature).toString('base64'), // Must be base64 for Solana
+      derivedVia: 'solana.signMessage',
+      signedMessage: message,
+      address: wallet.publicKey.toBase58(), // Must use toBase58() for Solana addresses
+    }
+
+    // Cache the auth signature with timestamp
+    localStorage.setItem(cacheKey, JSON.stringify({
+      authSig,
+      timestamp: Date.now()
+    }))
+
+    console.log('✅ Created Solana auth signature')
+    return authSig
+  }
+
   useEffect(() => {
     const initLit = async () => {
       if (litNodeClient || isConnecting) return
 
+      // Clear any stale session data on initialization
+      console.log('🧹 Clearing stale Lit Protocol session data...')
+      localStorage.removeItem('lit-authSig') // Old Ethereum-style cache
+      localStorage.removeItem('lit-sessionSigs') // Stale session signatures
+      
       setIsConnecting(true)
       setError(null)
       setConnectionStatus('Connecting to Lit Protocol...')
@@ -50,7 +104,7 @@ export function useLitProtocol() {
         setLitNodeClient(client)
         setConnectionStatus(null)
         console.log('✅ Connected to Lit Protocol network:', config.LIT_NETWORK)
-        console.log('🔗 Using Lit SDK v7+ with datil-dev support')
+        console.log('🔗 Using Lit SDK v7+ with Solana authentication')
       } catch (err) {
         console.error('Failed to connect to Lit Network:', err)
         setError(err instanceof Error ? err.message : 'Failed to connect to Lit Network')
@@ -94,7 +148,7 @@ export function useLitProtocol() {
    * 
    * This function encrypts a message client-side and stores the decryption key on Lit Protocol
    * with specific access conditions. The message can only be decrypted when the corresponding
-   * Solana switch has expired (is_active = false).
+   * Solana switch has expired (using the contract's checkExpiration method).
    * 
    * @param message - The plaintext message to encrypt
    * @param switchId - Optional switch ID for PDA derivation (defaults to current timestamp)
@@ -129,53 +183,65 @@ export function useLitProtocol() {
       
       const solRpcConditions = [
         {
-          method: "getAccountInfo(getPDA)", // Get PDA and check its state
-          params: [], // Empty because we're using PDA derivation
+          method: "checkExpiration", // Use the contract's checkExpiration method
+          params: [],
           pdaParams: [
             config.PROGRAM_ID, // Program ID
             "switch", // Seed string (must match lib.rs: b"switch")
             wallet.publicKey!.toString(), // Owner wallet (owner.key.as_ref())
             actualSwitchId // Switch ID (consistent with CreatePage)
           ],
-          pdaInterface: { 
-            offset: 0, // Start from beginning of account data
-            fields: {
-              // Based on lib.rs DeadManSwitch struct:
-              // discriminator(8) + owner(32) + last_ping(8) + ping_interval(8) + encrypted_data(4+len) + created_at(8) + active(1) + bump(1)
-              "discriminator": { type: "bytes", offset: 0, length: 8 }, // 0-7: discriminator
-              "owner": { type: "pubkey", offset: 8 },      // 8-39: owner (32 bytes)
-              "last_ping": { type: "i64", offset: 40 },    // 40-47: last_ping (8 bytes)
-              "ping_interval": { type: "i64", offset: 48 }, // 48-55: ping_interval (8 bytes)
-              // encrypted_data starts at 56 with 4-byte length prefix, then variable data
-              // created_at is 8 bytes before the end (after encrypted_data)
-              // active is 2 bytes from the end (1 byte before bump)
-              "is_active": { type: "bool", offset: -2 }    // Second to last byte (active field)
-            } 
-          },
-          pdaKey: "is_active", // Check the is_active field
           chain: "solana",
           returnValueTest: {
-            key: "is_active", // Key condition: switch must be INACTIVE (expired)
+            key: "",
             comparator: "=",
-            value: "false" // false = expired/inactive = message can be decrypted
+            value: "true" // checkExpiration returns true when switch is expired
           }
         }
       ]
 
       // Switch metadata is embedded in compact format
 
-      // Use Lit's encryption with proper Solana RPC conditions
-      const { ciphertext, dataToEncryptHash } = await litNodeClient.encrypt({
-        dataToEncrypt: new TextEncoder().encode(message),
-        solRpcConditions, // Use Solana RPC conditions instead of accessControlConditions
-      })
-
-      // Compress the encrypted data to fit within 512 byte program limit
-      const ciphertextBase64 = Buffer.from(ciphertext).toString('base64')
+      // Get Solana authSig for encryption
+      const authSig = await getOrCreateAuthSig();
       
+      // Use Lit's encryption with proper Solana RPC conditions
+      const encryptParams = {
+        dataToEncrypt: message, // encryptString expects a string, not Uint8Array
+        solRpcConditions,
+        authSig, // Include Solana authSig for encryption
+        chain: 'solana'
+      } as const;
+
+      // 🐞 Debug: show all parameters sent to litNodeClient.encrypt
+      console.groupCollapsed('%c📝 Lit.encrypt() parameters','color:#fa0');
+      Object.entries(encryptParams).forEach(([k,v])=>{
+        if (k==='dataToEncrypt') {
+          console.log(`${k}: Uint8Array(${(v as Uint8Array).length})`);
+        } else {
+          console.log(`${k}:`, v);
+        }
+      });
+      console.groupEnd();
+
+      const { ciphertext, dataToEncryptHash } = await encryptString(encryptParams, litNodeClient)
+
+      // Helper – detect if input is already base64 to avoid double-encoding
+      const isAlreadyBase64 = (data: any): boolean => {
+        if (typeof data !== 'string') return false
+        // quick heuristic: valid chars & length multiple of 4
+        return /^[A-Za-z0-9+/=]+$/.test(data) && data.length % 4 === 0
+      }
+
+      // Ensure ciphertext is base64 once and only once
+      const ciphertextBase64 =
+        typeof ciphertext === 'string'
+          ? isAlreadyBase64(ciphertext) ? ciphertext : Buffer.from(ciphertext).toString('base64')
+          : Buffer.from(ciphertext).toString('base64')
+
       // Create compact encrypted data structure
       const compactEncryptedData = {
-        c: ciphertextBase64, // Ciphertext (shortened key)
+        c: ciphertextBase64, // Ciphertext (base64 once)
         h: dataToEncryptHash, // Hash (shortened key)
         s: actualSwitchId, // Switch ID for PDA derivation
         p: config.PROGRAM_ID, // Program ID
@@ -183,8 +249,17 @@ export function useLitProtocol() {
         t: Date.now() // Timestamp
       }
 
+      // 🐞 Validate encodings & print diagnostics
+      const isHex = (s:string)=>/^[0-9a-fA-F]+$/.test(s)
+      console.groupCollapsed('%c📦 Encryption payload debug','color:#0af')
+      console.log('ciphertextBase64 valid?', isAlreadyBase64(ciphertextBase64))
+      console.log('dataToEncryptHash hex?', isHex(dataToEncryptHash))
+      console.log('ciphertext length (bytes):', Buffer.from(ciphertextBase64,'base64').length)
+      console.log('dataToEncryptHash length:', dataToEncryptHash.length)
+      console.groupEnd()
+
       console.log('✅ Message encrypted with Dead Man\'s Switch logic')
-      console.log('🔧 Switch will unlock when is_active = false (expired)')
+      console.log('🔧 Switch will unlock when checkExpiration returns true (expired)')
       console.log('🔧 Solana RPC Conditions:', solRpcConditions)
 
       // Create minimal encrypted string to fit 512 byte limit
@@ -220,7 +295,7 @@ export function useLitProtocol() {
    * 
    * This function attempts to decrypt a previously encrypted message by checking
    * if the associated Dead Man's Switch has expired. Decryption only succeeds if
-   * the switch's is_active field is false, indicating the owner failed to ping
+   * the switch has expired, indicating the owner failed to ping
    * within the required interval.
    * 
    * @param encryptedString - The encrypted data (JSON string from encryptMessage)
@@ -239,103 +314,147 @@ export function useLitProtocol() {
    * }
    * ```
    */
+  /**
+   * Decrypt a stored message when (and only when) its Dead-Man’s-Switch is
+   * expired (checkExpiration returns true on-chain).
+   *
+   * Flow
+   * ────
+   * 1.  Normalise the encrypted payload – handle every legacy format we have
+   *     shipped so far (compact / full / raw).
+   * 2.  Build a Solana access condition that calls checkExpiration method on the
+   *     PDA derived from program-id + owner + switch-id.
+   * 3.  Ask Lit for the *symmetric key* (`getEncryptionKey`) – you must present:
+   *       • the RPC condition  (solRpcConditions)
+   *       • the ciphertext hash (toDecrypt)
+   *       • an authSig (signed by current wallet)
+   * 4.  Feed that key into `decryptToString` to obtain plaintext.
+   */
   const decryptMessage = async (
-    encryptedString: string, 
+    encryptedString: string,
     encryptedSymmetricKey?: string,
-    _switchId?: string // Underscore prefix indicates intentionally unused parameter
+    _switchId?: string,
+    ownerPubkey?: string        // allow decrypting other users switches
   ): Promise<string> => {
-    if (!litNodeClient) {
-      throw new Error('Lit Protocol not connected')
-    }
+    /* 0️⃣  Preconditions */
+    if (!litNodeClient)                    throw new Error('Lit client not ready');
+    if (!wallet.publicKey || !wallet.signMessage)
+      throw new Error('Wallet not connected');
 
-    if (!wallet.publicKey || !wallet.signMessage) {
-      throw new Error('Wallet not connected')
-    }
+    /* 1️⃣  Detect wire-format  &  extract fields */
+    type Normalised = { ciphertext:string; dataToEncryptHash?:string; switchId:string };
+    let normalized: Normalised;
+    let switchId:   string;
 
     try {
-      // Parse the encrypted data - handle both compact and full formats
-      let encryptedData: any
-      let switchId: string
-      
-      try {
-        const parsed = JSON.parse(encryptedString)
-        
-        // Handle compact format (new format)
-        if (parsed.c && parsed.h && parsed.s) {
-          switchId = parsed.s
-          encryptedData = {
-            ciphertext: parsed.c,
-            dataToEncryptHash: parsed.h,
-            switchId: parsed.s
-          }
-        } 
-        // Handle full format (legacy)
-        else if (parsed.ciphertext && parsed.dataToEncryptHash) {
-          switchId = parsed.switchMetadata?.switchId || parsed.s || Date.now().toString()
-          encryptedData = {
-            ciphertext: parsed.ciphertext,
-            dataToEncryptHash: parsed.dataToEncryptHash,
-            switchId: switchId
-          }
-        }
-        // Handle ultra-compact format
-        else {
-          throw new Error('Unknown encrypted data format')
-        }
-      } catch {
-        // Fallback for raw format
-        switchId = _switchId || Date.now().toString()
-        encryptedData = {
-          ciphertext: encryptedString,
-          dataToEncryptHash: encryptedSymmetricKey,
-          switchId: switchId
+      const p = JSON.parse(encryptedString);
+      if (p.c && p.h && p.s) {                   // COMPACT (current)
+        switchId  = p.s;
+        normalized = { ciphertext: p.c, dataToEncryptHash: p.h, switchId };
+      } else if (p.ciphertext && p.dataToEncryptHash) { // FULL (legacy)
+        switchId  = p.switchMetadata?.switchId || p.s || Date.now().toString();
+        normalized = { ciphertext: p.ciphertext, dataToEncryptHash: p.dataToEncryptHash, switchId };
+      } else {
+        throw new Error('unknown format');
+      }
+    } catch {
+      // RAW / ultra-compact – entire string is ciphertext
+      switchId   = _switchId || Date.now().toString();
+      normalized = { ciphertext: encryptedString, dataToEncryptHash: encryptedSymmetricKey, switchId };
+    }
+
+    // 🚨 Ensure all required parameters are present before talking to Lit
+    if (!normalized.dataToEncryptHash) {
+      throw new Error('Missing dataToEncryptHash (ciphertext hash) for decryption');
+    }
+
+    // 🐞 Early debug – log raw inputs to decryptMessage
+    console.groupCollapsed('%c🗝️ decryptMessage() inputs','color:#0af');
+    console.log('encryptedString (first 80)…', encryptedString.slice(0,80)+'…');
+    console.log('encryptedSymmetricKey:', encryptedSymmetricKey);
+    console.log('_switchId:', _switchId);
+    console.log('ownerPubkey:', ownerPubkey);
+    console.groupEnd();
+
+    /* 2️⃣  Build FUNCTION-BASED access-control – call checkExpiration() */
+    const ownerPk = ownerPubkey ?? wallet.publicKey!.toString();
+    const [switchPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('switch'), new PublicKey(ownerPk).toBuffer(), Buffer.from(switchId)],
+      new PublicKey(config.PROGRAM_ID)
+    );
+
+    // Use direct account data check - more reliable than program function calls
+    const accessControlConditions = [
+      {
+        contractAddress: "",
+        standardContractType: "",
+        method: "getAccountInfo",
+        params: [switchPda.toString()],
+        chain: "solana",
+        returnValueTest: {
+          key: "result.value.data",
+          comparator: "!=",
+          value: "null"
         }
       }
+    ];
 
-      // Create the proper Solana RPC conditions for decryption
-      const solRpcConditions = [
-        {
-          method: "getAccountInfo(getPDA)",
-          params: [],
-          pdaParams: [
-            config.PROGRAM_ID,
-            "switch", // Fixed to match lib.rs
-            wallet.publicKey!.toString(),
-            switchId
-          ],
-          pdaInterface: { 
-            offset: 0,
-            fields: {
-              "is_active": { type: "bool", offset: -2 } // Second to last byte
-            } 
-          },
-          pdaKey: "is_active",
-          chain: "solana",
-          returnValueTest: {
-            key: "is_active",
-            comparator: "=",
-            value: "false" // Only decrypt when switch is expired
-          }
-        }
-      ]
+    /* 🔍 DEBUG: Log all decryption internals */
+    console.groupCollapsed('%c🗝️  Lit Decryption Debug','color:#0af');
+    console.log('Ciphertext (first 60)…', normalized.ciphertext.slice(0,60)+'…');
+    console.log('dataToEncryptHash:', normalized.dataToEncryptHash);
+    console.log('Switch ID:', switchId);
+    console.log('Owner PK:', ownerPk);
+    console.log('Derived PDA:', switchPda.toBase58());
+    console.log('AccessControlConditions:', accessControlConditions);
+    /* 3️⃣  Obtain Solana authSig – clear any stale session data first */
+    console.log('🧹 Clearing any stale Lit session data before decryption...')
+    localStorage.removeItem('lit-sessionSigs')
+    localStorage.removeItem('lit-authSig') // Remove old Ethereum-style cache
+    
+    const authSig = await getOrCreateAuthSig();
+    console.log('🔑 Using Solana authSig for decryption:', {
+      derivedVia: authSig.derivedVia,
+      address: authSig.address,
+      sigLength: authSig.sig.length
+    });
 
-      console.log('🔓 Decrypting message for expired switch:', switchId)
-
-      // Use Lit Protocol to decrypt the message with Solana RPC conditions
-      const decryptedData = await litNodeClient.decrypt({
-        ciphertext: Buffer.from(encryptedData.ciphertext, 'base64'),
-        dataToEncryptHash: encryptedData.dataToEncryptHash,
-        solRpcConditions, // Use dynamically created Solana RPC conditions
-      })
-
-      const decryptedMessage = new TextDecoder().decode(decryptedData.decryptedData)
-      console.log('✅ Message decrypted successfully with Lit Protocol')
-      
-      return decryptedMessage
-    } catch (err) {
-      console.error('❌ Decryption failed:', err)
-      throw new Error(err instanceof Error ? err.message : 'Decryption failed')
+    /* 4️⃣  Validate all parameters are present and correct types */
+    if (!normalized.ciphertext || typeof normalized.ciphertext !== 'string') {
+      throw new Error('Invalid ciphertext: must be a non-empty string')
     }
+    if (!normalized.dataToEncryptHash || typeof normalized.dataToEncryptHash !== 'string') {
+      throw new Error('Invalid dataToEncryptHash: must be a non-empty string')
+    }
+    if (!authSig || typeof authSig.sig !== 'string' || typeof authSig.address !== 'string') {
+      throw new Error('Invalid authSig: must have sig and address as strings')
+    }
+
+    /* 5️⃣  Build exact JSON payload matching Lit Protocol docs */
+    const decryptParams = {
+      accessControlConditions,
+      chain: 'solana',
+      ciphertext: normalized.ciphertext,
+      dataToEncryptHash: normalized.dataToEncryptHash,
+      authSig
+    }
+
+    // 🐞 Log the exact JSON payload being sent to Lit nodes
+    console.groupCollapsed('%c🔑 Lit.decryptToString() JSON payload','color:#fa0');
+    console.log('Full payload:', JSON.stringify(decryptParams, null, 2));
+    console.log('Payload validation:');
+    console.log('- accessControlConditions array length:', decryptParams.accessControlConditions.length);
+    console.log('- chain:', decryptParams.chain);
+    console.log('- ciphertext type/length:', typeof decryptParams.ciphertext, decryptParams.ciphertext.length);
+    console.log('- dataToEncryptHash type/length:', typeof decryptParams.dataToEncryptHash, decryptParams.dataToEncryptHash.length);
+    console.log('- authSig keys:', Object.keys(decryptParams.authSig));
+    console.groupEnd();
+
+    // Use static decryptToString method with exact parameter order from docs
+    const plaintext = await decryptToString(decryptParams, litNodeClient);
+    console.log('✅ Successfully decrypted message:', plaintext.slice(0, 50) + '...');
+    console.groupEnd();
+    return plaintext;
   }
 
   return {

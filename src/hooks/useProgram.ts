@@ -303,18 +303,71 @@ export function useProgram() {
       return result as boolean
     } catch (error) {
       console.error('Failed to check expiration:', error)
-      return false
+      
+      // Fallback to client-side calculation if program call fails
+      try {
+        const account = await (program.account as any).deadManSwitch.fetch(switchPDA)
+        const currentTime = Math.floor(Date.now() / 1000)
+        const lastPing = typeof account.lastPing === 'bigint' ? Number(account.lastPing) : account.lastPing
+        const pingInterval = typeof account.pingInterval === 'bigint' ? Number(account.pingInterval) : account.pingInterval
+        
+        // Safe overflow check
+        if (lastPing > Number.MAX_SAFE_INTEGER - pingInterval) {
+          return true // Treat overflow as expired
+        }
+        
+        return currentTime >= (lastPing + pingInterval)
+      } catch (fallbackError) {
+        console.error('Fallback expiration check also failed:', fallbackError)
+        return false
+      }
     }
   }
 
   /**
-   * Retrieves comprehensive information about a specific switch.
+   * Batch checks expiration status for multiple switches efficiently.
    * 
-   * Fetches the complete switch account data from the blockchain,
-   * including owner, timing information, encrypted data, and status.
+   * Uses the program's checkExpiration method for each switch but implements
+   * batching and error handling to optimize performance and reliability.
+   * 
+   * @param switchPDAs - Array of switch PDAs to check
+   * @returns Promise resolving to Map of PDA string -> expiration status
+   */
+  const batchCheckExpiration = async (switchPDAs: PublicKey[]): Promise<Map<string, boolean>> => {
+    const results = new Map<string, boolean>()
+    
+    // Process in small batches to avoid overwhelming RPC
+    const batchSize = 5
+    for (let i = 0; i < switchPDAs.length; i += batchSize) {
+      const batch = switchPDAs.slice(i, i + batchSize)
+      
+      const batchPromises = batch.map(async (pda) => {
+        try {
+          const isExpired = await checkExpiration(pda)
+          return { pda: pda.toString(), isExpired }
+        } catch (error) {
+          console.warn('Failed to check expiration for switch:', pda.toString(), error)
+          return { pda: pda.toString(), isExpired: false }
+        }
+      })
+      
+      const batchResults = await Promise.all(batchPromises)
+      batchResults.forEach(({ pda, isExpired }) => {
+        results.set(pda, isExpired)
+      })
+    }
+    
+    return results
+  }
+
+  /**
+   * Retrieves comprehensive information about a specific switch using the program's getSwitchInfo method.
+   * 
+   * This uses the program's built-in getSwitchInfo function which returns rich computed data
+   * including expiration status, timing calculations, and current blockchain time.
    * 
    * @param switchPDA - The Program Derived Address of the switch to query
-   * @returns Promise resolving to the complete switch account data
+   * @returns Promise resolving to SwitchInfo with computed properties
    * @throws Error if program not available, account not found, or RPC fails
    */
   const getSwitchInfo = async (switchPDA: PublicKey) => {
@@ -323,11 +376,49 @@ export function useProgram() {
     }
 
     try {
-      // Use account fetching directly instead of .view() method
+      // Use the program's getSwitchInfo method for rich data
+      const switchInfo = await program.methods
+        .getSwitchInfo()
+        .accounts({
+          switch: switchPDA,
+        })
+        .view()
+      
+      return switchInfo
+    } catch (error) {
+      console.error('Failed to get switch info:', error)
+      
+      // Fallback to direct account fetch if getSwitchInfo fails
+      try {
+        console.log('Falling back to direct account fetch...')
+        const accountInfo = await (program.account as any).deadManSwitch.fetch(switchPDA)
+        return accountInfo
+      } catch (fallbackError) {
+        console.error('Fallback account fetch also failed:', fallbackError)
+        throw error
+      }
+    }
+  }
+
+  /**
+   * Retrieves raw account data for a switch (without computed properties).
+   * 
+   * Use this when you need direct access to the account structure without
+   * the overhead of calling the program's getSwitchInfo method.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to query
+   * @returns Promise resolving to the raw switch account data
+   */
+  const getSwitchAccount = async (switchPDA: PublicKey) => {
+    if (!program) {
+      throw new Error('Program not available')
+    }
+
+    try {
       const accountInfo = await (program.account as any).deadManSwitch.fetch(switchPDA)
       return accountInfo
     } catch (error) {
-      console.error('Failed to get switch info:', error)
+      console.error('Failed to get switch account:', error)
       throw error
     }
   }
@@ -390,10 +481,10 @@ export function useProgram() {
       
       // Log switch details for debugging (only if we have switches)
       if (validatedSwitches.length > 0) {
-        validatedSwitches.forEach((switch_: any) => {
-          console.log('✅ User switch:', {
+        console.log('✅ Found', validatedSwitches.length, 'user switches')
+        validatedSwitches.slice(0, 2).forEach((switch_: any) => {
+          console.log('📋 Switch details:', {
             pubkey: switch_.publicKey.toString().slice(0, 8),
-            active: switch_.account.active,
             lastPing: new Date(safeBigIntToNumber(switch_.account.lastPing) * 1000).toISOString(),
             encryptedDataLength: switch_.account.dataLength, // Use dataLength field for actual data size
             fixedArraySize: switch_.account.encryptedData.length, // Fixed 512 bytes
@@ -509,33 +600,8 @@ export function useProgram() {
     }
   }
 
-  /**
-   * Retrieves all switches that have expired and can potentially be unlocked.
-   * 
-   * Filters the complete list of switches to return only those that have
-   * passed their expiration deadline. Used for displaying publicly available
-   * expired switches whose messages can be decrypted.
-   * 
-   * @returns Promise resolving to array of expired switch objects
-   * @throws Error if program not available or data fetching fails
-   */
-  const getExpiredSwitches = async () => {
-    if (!program) return []
-
-    try {
-      console.log('🔍 Fetching expired switches using Anchor deserialization...')
-      
-      // Get all switches and filter for expired ones
-      const allSwitches = await getAllSwitches()
-      const expiredSwitches = allSwitches.filter(switch_ => switch_.computed.isExpired)
-      
-      console.log('✅ Found', expiredSwitches.length, 'expired switches out of', allSwitches.length, 'total')
-      return expiredSwitches
-    } catch (error) {
-      console.error('Failed to fetch expired switches:', error)
-      return []
-    }
-  }
+  // getExpiredSwitches removed - no longer available in the deployed contract
+  // Use getAllSwitches() and filter using getSwitchInfo().expired instead
 
   /**
    * Efficiently checks if the current user has any switches without fetching full data.
@@ -571,37 +637,8 @@ export function useProgram() {
     }
   }
 
-  /**
-   * Permanently deactivates a switch, stopping its expiration timer.
-   * 
-   * This allows the owner to manually disable a switch so it will never expire
-   * or reveal its encrypted data. The operation is irreversible - deactivated
-   * switches cannot be reactivated.
-   * 
-   * @param switchPDA - The Program Derived Address of the switch to deactivate
-   * @returns Promise resolving to the transaction signature
-   * @throws Error if wallet not connected, unauthorized, or switch already inactive
-   */
-  const deactivateSwitch = async (switchPDA: PublicKey) => {
-    if (!program || !wallet.publicKey) {
-      throw new Error('Program or wallet not available')
-    }
-
-    try {
-      const tx = await program.methods
-        .deactivateSwitch()
-        .accounts({
-          switch: switchPDA,
-          owner: wallet.publicKey,
-        })
-        .rpc()
-
-      return tx
-    } catch (error) {
-      console.error('Failed to deactivate switch:', error)
-      throw error
-    }
-  }
+  // deactivateSwitch removed - no longer available in the deployed contract
+  // Switches now automatically become available for decryption when they expire
 
   /**
    * Closes a switch account and recovers the stored SOL rent to the owner.
@@ -660,12 +697,12 @@ export function useProgram() {
     createSwitch,
     pingSwitch,
     checkExpiration,
+    batchCheckExpiration,
     getSwitchInfo,
+    getSwitchAccount,
     getUserSwitches,
     getAllSwitches,
-    getExpiredSwitches,
     checkUserHasSwitches,
-    deactivateSwitch,
     closeSwitch,
     getActualEncryptedData,
     connected: !!program,

@@ -8,7 +8,7 @@ export interface EnvConfig {
   LIT_NETWORK: 'datil-dev' | 'datil-test' | 'mainnet'
 }
 
-// Dead Man's Switch account structure (matches IDL)
+// Dead Man's Switch account structure (matches deployed contract)
 export interface DeadManSwitch {
   owner: PublicKey
   lastPing: number | bigint  // Can be bigint from Anchor deserialization
@@ -16,8 +16,8 @@ export interface DeadManSwitch {
   encryptedData: number[]  // Fixed array [u8; 512] comes as number array from Anchor
   dataLength: number      // u16 field tracking actual data size
   createdAt: number | bigint  // Can be bigint from Anchor deserialization
-  active: boolean
-  bump: number
+  bump: number           // u8 PDA bump
+  // Note: 'active' field removed in new contract - use getSwitchInfo().expired instead
 }
 
 // Switch info structure (matches IDL)
@@ -82,7 +82,7 @@ export interface SwitchClosedEvent {
   timestamp: number
 }
 
-// Program errors (matches IDL)
+// Program errors (matches updated lib.rs ErrorCode enum)
 export enum ProgramError {
   InvalidInterval = 6000,
   DataTooLarge = 6001,
@@ -90,12 +90,21 @@ export enum ProgramError {
   TimeOverflow = 6003,
   InvalidSwitchId = 6004,
   Unauthorized = 6005,
-  InactiveSwitch = 6006,
-  ActiveSwitch = 6007,
-  NotExpired = 6008,
-  InvalidTimestamp = 6009,
-  ArithmeticOverflow = 6010,
-  AlreadyInactive = 6011,
+  Expired = 6006,
+  NotExpired = 6007,
+  InvalidTimestamp = 6008,
+}
+
+// Enhanced switch with computed properties for optimized UI rendering
+export interface EnrichedSwitch {
+  publicKey: PublicKey
+  account: DeadManSwitch
+  computed?: {
+    isExpired: boolean
+    expirationTime: number
+    timeSinceExpiry: number
+    timeUntilExpiry: number
+  }
 }
 
 /**

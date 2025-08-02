@@ -12,7 +12,9 @@ interface SwitchCardProps {
     account: DeadManSwitch
   }
   onPing: (switchPDA: PublicKey) => Promise<void>
+  onClose: (switchPDA: PublicKey) => Promise<void>
   isPinging: boolean
+  isClosing: boolean
 }
 
 /**
@@ -31,7 +33,7 @@ interface SwitchCardProps {
  * @param props.isPinging - Boolean indicating if ping operation is in progress
  * @returns JSX element with switch card UI
  */
-const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
+const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onClose, isPinging, isClosing }) => {
   const { account, publicKey } = switch_
   
   // Use safe time calculation utility
@@ -134,23 +136,35 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
         </div>
       </div>
 
-      {account.active && !isExpired && (
-        <button
-          onClick={() => onPing(publicKey)}
-          disabled={isPinging}
-          className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
-        >
-          {isPinging ? 'Pinging...' : 'Ping Switch'}
-        </button>
-      )}
+      <div className="space-y-3">
+        {!isExpired && (
+          <button
+            onClick={() => onPing(publicKey)}
+            disabled={isPinging}
+            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            {isPinging ? 'Pinging...' : 'Ping Switch'}
+          </button>
+        )}
 
-      {isExpired && (
-        <div className="bg-red-900/20 border border-red-500/30 rounded p-3">
-          <p className="text-red-300 text-sm">
-            This switch has expired. Your message may now be visible to the public.
-          </p>
-        </div>
-      )}
+        {isExpired && (
+          <div className="bg-red-900/20 border border-red-500/30 rounded p-3">
+            <p className="text-red-300 text-sm mb-3">
+              This switch has expired. Your message may now be visible to the public.
+            </p>
+            <button
+              onClick={() => onClose(publicKey)}
+              disabled={isClosing}
+              className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              {isClosing ? 'Closing...' : 'Close & Recover SOL'}
+            </button>
+            <p className="text-red-200 text-xs mt-2">
+              ⚠️ This will permanently delete the switch and recover your storage rent.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -176,12 +190,13 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
  */
 export const MySwitchesPage: FC = () => {
   const { connected } = useWallet()
-  const { getUserSwitches, pingSwitch } = useProgram()
+  const { getUserSwitches, pingSwitch, closeSwitch } = useProgram()
   const [switches, setSwitches] = useState<Array<{ publicKey: PublicKey, account: DeadManSwitch }>>([])
   const [isLoading, setIsLoading] = useState(false) // Will be set to true when auto-loading starts
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pingingSwitch, setPingingSwitch] = useState<string | null>(null)
+  const [closingSwitch, setClosingSwitch] = useState<string | null>(null)
     // Track component mount status to avoid updating state after unmount
   const isMountedRef = useRef(false)
 
@@ -290,6 +305,44 @@ export const MySwitchesPage: FC = () => {
     }
   }
 
+  /**
+   * Handles closing an expired switch and recovering the storage rent.
+   * 
+   * Executes the close transaction which permanently deletes the switch
+   * account and transfers the stored lamports back to the owner.
+   * Only works on expired switches.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to close
+   */
+  const handleClose = async (switchPDA: PublicKey) => {
+    setClosingSwitch(switchPDA.toString())
+    setError(null) // Clear any previous errors
+    
+    try {
+      const signature = await closeSwitch(switchPDA)
+      console.log('✅ Switch closed successfully, transaction:', signature)
+      
+      // Remove the closed switch from local state immediately
+      if (isMountedRef.current) {
+        setSwitches(prevSwitches => 
+          prevSwitches.filter(s => s.publicKey.toString() !== switchPDA.toString())
+        )
+      }
+      
+      // Optional: Show success message
+      console.log('💰 Storage rent recovered from closed switch')
+    } catch (err) {
+      console.error('Failed to close switch:', err)
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to close switch')
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setClosingSwitch(null)
+      }
+    }
+  }
+
   // Separate effect for connection state changes
   useEffect(() => {
     console.log('🔍 Debug - connection useEffect triggered:', { connected })
@@ -370,7 +423,10 @@ export const MySwitchesPage: FC = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-green-400">
-                    {switches.filter(s => s.account.active).length}
+                    {switches.filter(s => {
+                      const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
+                      return !calc.isExpired
+                    }).length}
                   </p>
                   <p className="text-sm text-gray-400">Active</p>
                 </div>
@@ -382,7 +438,7 @@ export const MySwitchesPage: FC = () => {
                       const pingInterval = typeof s.account.pingInterval === 'bigint' ? Number(s.account.pingInterval) : s.account.pingInterval
                       if (lastPing <= Number.MAX_SAFE_INTEGER - pingInterval) {
                         const timeRemaining = (lastPing + pingInterval) - now
-                        return s.account.active && timeRemaining <= 3600 && timeRemaining > 0
+                        return timeRemaining <= 3600 && timeRemaining > 0
                       }
                       return false
                     }).length}
@@ -413,7 +469,9 @@ export const MySwitchesPage: FC = () => {
                   key={switch_.publicKey.toString()}
                   switch_={switch_}
                   onPing={handlePing}
+                  onClose={handleClose}
                   isPinging={pingingSwitch === switch_.publicKey.toString()}
+                  isClosing={closingSwitch === switch_.publicKey.toString()}
                 />
               ))}
             </div>
