@@ -9,11 +9,39 @@ const MAX_PING_INTERVAL = 365 * 24 * 60 * 60 // 1 year (from lib.rs)
 const MAX_DATA_SIZE = 512 // bytes (from lib.rs)
 const MAX_MESSAGE_SIZE = 200 // Reduced to ensure encrypted data fits within 512 bytes
 
-// Utility function to calculate byte length consistently
+/**
+ * Utility function to calculate the byte length of a text string.
+ * 
+ * Uses TextEncoder to get the actual UTF-8 byte length, which is important
+ * for validation since the blockchain storage limit is in bytes, not characters.
+ * Multi-byte Unicode characters can exceed character-based limits.
+ * 
+ * @param text - The string to measure
+ * @returns The number of bytes when encoded as UTF-8
+ */
 const getMessageByteLength = (text: string): number => {
   return new TextEncoder().encode(text).length
 }
 
+/**
+ * Create Switch page component for setting up new Dead Man's Switch instances.
+ * 
+ * This page provides a comprehensive interface for creating encrypted switches with:
+ * - Message input with real-time byte validation
+ * - Interval selection with special first-time user options
+ * - Live preview of switch configuration
+ * - Progress feedback during creation process
+ * - Success confirmation with transaction details
+ * 
+ * Features:
+ * - Client-side message encryption before blockchain storage
+ * - Real-time validation against program constraints
+ * - First-time user detection and special 1-minute interval option
+ * - Comprehensive error handling and user feedback
+ * - Integration with both Lit Protocol and Solana program
+ * 
+ * @returns JSX element containing the complete switch creation interface
+ */
 export const CreatePage = () => {
   const wallet = useWallet()
   const { connected } = wallet
@@ -57,6 +85,18 @@ export const CreatePage = () => {
     checkFirstTimeUser()
   }, [connected]) // Only depend on connected to prevent loops
 
+  /**
+   * Handles the form submission for creating a new Dead Man's Switch.
+   * 
+   * This function orchestrates the complete switch creation process:
+   * 1. Validates all input parameters against program constraints
+   * 2. Generates a unique switch ID for blockchain storage
+   * 3. Encrypts the message using Lit Protocol with access conditions
+   * 4. Creates the switch on Solana blockchain with encrypted data
+   * 5. Provides user feedback and navigation options
+   * 
+   * @param e - React form event to prevent default submission
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!connected || !message.trim()) return
@@ -231,7 +271,15 @@ export const CreatePage = () => {
     )
   }
 
-  // Toast notification component
+  /**
+   * Toast notification component for displaying switch creation success.
+   * 
+   * Shows a temporary notification with transaction confirmation and
+   * quick access to view the transaction on Solscan. Auto-dismisses
+   * after 10 seconds or when manually closed by the user.
+   * 
+   * @returns JSX element with success notification or null if not shown
+   */
   const Toast = () => {
     if (!showToast || !txSignature) return null
     

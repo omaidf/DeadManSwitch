@@ -49,11 +49,42 @@ const navigation = [
   }
 ]
 
+/**
+ * Main layout component that provides the application's UI structure.
+ * 
+ * This component creates the overall application layout with:
+ * - Responsive sidebar navigation with mobile support
+ * - Wallet connection button in the header
+ * - Network alert system for connection issues
+ * - Consistent spacing and styling throughout
+ * - Route-aware navigation highlighting
+ * 
+ * Features:
+ * - Mobile-responsive sidebar with overlay
+ * - Wallet-aware navigation (some routes require connection)
+ * - Network status monitoring and alerts
+ * - Gradient background and glassmorphism effects
+ * - Social links and branding in sidebar footer
+ * 
+ * @param props - Component props
+ * @param props.children - Page content to render in the main area
+ * @returns JSX element with complete application layout
+ */
 export const Layout: FC<Props> = ({ children }) => {
   const location = useLocation()
   const { connected } = useWallet()
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  /**
+   * Determines if a navigation link should be highlighted as active.
+   * 
+   * Compares the current route path with the navigation item's href
+   * to determine active state. Handles special case for home route
+   * to ensure exact matching.
+   * 
+   * @param href - The navigation item's href to check
+   * @returns Boolean indicating if the route is currently active
+   */
   const isActive = (href: string) => {
     if (href === '/') {
       return location.pathname === '/'

@@ -1,6 +1,22 @@
 import { FC } from 'react'
 import { useNetworkDetection } from '../hooks/useNetworkDetection'
 
+/**
+ * Network alert component that displays important network status warnings.
+ * 
+ * This component provides contextual alerts based on network detection:
+ * - Wallet connection prompts for disconnected users
+ * - Network detection loading states
+ * - Critical warnings for non-devnet usage (mainnet/testnet)
+ * - Network mismatch alerts between config and detected network
+ * - Success confirmations for proper devnet connections
+ * 
+ * The component automatically chooses the most important alert to display
+ * based on current network state and connection status. Alerts are styled
+ * with appropriate colors and icons to indicate severity.
+ * 
+ * @returns JSX element with contextual network alert or null if no alert needed
+ */
 export const NetworkAlert: FC = () => {
   const { networkInfo, isDetecting } = useNetworkDetection()
 

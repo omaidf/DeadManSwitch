@@ -2,6 +2,21 @@ import { FC } from 'react'
 import { useConnection } from '@solana/wallet-adapter-react'
 import { useNetworkDetection } from '../hooks/useNetworkDetection'
 
+/**
+ * Network status component that displays detailed Solana network information.
+ * 
+ * This component provides a comprehensive dashboard showing:
+ * - Connection status with visual indicators
+ * - Detected vs configured network comparison
+ * - RPC endpoint information
+ * - Network mismatch warnings
+ * - Environment-specific alerts (mainnet warnings, devnet confirmations)
+ * 
+ * Uses the useNetworkDetection hook to get real-time network information
+ * and presents it in a user-friendly format with appropriate visual cues.
+ * 
+ * @returns JSX element with complete network status dashboard
+ */
 export const NetworkStatus: FC = () => {
   const { connection } = useConnection()
   const { networkInfo, isDetecting } = useNetworkDetection()

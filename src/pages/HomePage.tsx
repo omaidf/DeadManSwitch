@@ -3,6 +3,23 @@ import { Link } from 'react-router-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { NetworkStatus } from '../components/NetworkStatus'
 
+/**
+ * Landing page component that introduces the Dead Man's Switch application.
+ * 
+ * This is the main entry point that provides:
+ * - Hero section with application introduction and call-to-action
+ * - Feature explanation with step-by-step process
+ * - Technology stack information (Solana + Lit Protocol)
+ * - Network statistics and usage metrics
+ * - Quick action cards for authenticated users
+ * - Comprehensive call-to-action section
+ * 
+ * The page adapts its content based on wallet connection status,
+ * showing different CTAs and navigation options for connected vs
+ * disconnected users.
+ * 
+ * @returns JSX element containing the complete homepage layout
+ */
 export const HomePage: FC = () => {
   const { connected } = useWallet()
 

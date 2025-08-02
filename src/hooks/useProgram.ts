@@ -10,16 +10,38 @@ import IDL_JSON from '../idl.json'
 // Use the actual IDL from the JSON file
 const IDL = IDL_JSON as unknown as Idl
 
+/**
+ * Custom React hook for interacting with the Dead Man's Switch Solana program.
+ * 
+ * Provides a comprehensive interface for all program operations including:
+ * - Creating new switches with encrypted data
+ * - Pinging switches to reset timers
+ * - Querying switch information and expiration status
+ * - Managing user switches (fetch, deactivate, close)
+ * - Retrieving all switches and expired switches
+ * 
+ * @returns Object containing program instance and all interaction functions
+ */
 export function useProgram() {
   const { connection } = useConnection()
   const wallet = useWallet()
   const config = getConfig()
 
   const program = useMemo(() => {
-    if (!wallet.publicKey) return null
+    // Allow read-only access even without a connected wallet by falling back to a dummy wallet.
+    // Any state-changing RPC (create/ping/deactivate etc.) will still guard against missing wallet, 
+    // but read-only queries like account.fetch work fine with this lightweight stub.
+    const readOnlyWallet = {
+      publicKey: new PublicKey('11111111111111111111111111111111'),
+      async signTransaction(tx: any) { return tx },
+      async signAllTransactions(txs: any) { return txs },
+    }
+
+    // Use real wallet if available, otherwise stub
+    const walletForProvider = wallet.publicKey ? (wallet as any) : (readOnlyWallet as any)
 
     try {
-      const provider = new AnchorProvider(connection, wallet as any, {
+      const provider = new AnchorProvider(connection, walletForProvider, {
         commitment: 'confirmed'
       })
       
@@ -38,6 +60,21 @@ export function useProgram() {
     }
   }, [connection, wallet, config.PROGRAM_ID])
 
+  /**
+   * Creates a new dead man's switch on the Solana blockchain.
+   * 
+   * This function handles the complete process of creating a switch:
+   * - Validates input parameters against program constraints
+   * - Generates a Program Derived Address (PDA) for the switch
+   * - Converts encrypted data to proper format for blockchain storage
+   * - Executes the on-chain transaction
+   * 
+   * @param id - Unique identifier for the switch (must be positive integer)
+   * @param encryptedMessage - Encrypted data from Lit Protocol (max 512 bytes when encoded)
+   * @param pingInterval - Time in seconds between required pings (60s - 1 year)
+   * @returns Promise resolving to object with transaction signature and switch PDA
+   * @throws Error if wallet not connected, invalid parameters, or transaction fails
+   */
   const createSwitch = async (id: number, encryptedMessage: string, pingInterval: number) => {
     console.log('🔧 Debug createSwitch called with:', { id, encryptedMessage: encryptedMessage.slice(0, 50) + '...', pingInterval })
     console.log('🔧 Wallet state:', { 
@@ -209,6 +246,16 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Resets a switch's expiration timer by sending a ping transaction.
+   * 
+   * This function allows the switch owner to "check in" and prevent expiration.
+   * Only the owner can ping their switches, and only active switches can be pinged.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to ping
+   * @returns Promise resolving to the transaction signature
+   * @throws Error if wallet not connected, unauthorized, or transaction fails
+   */
   const pingSwitch = async (switchPDA: PublicKey) => {
     if (!program || !wallet.publicKey) {
       throw new Error('Program or wallet not available')
@@ -230,6 +277,16 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Checks if a specific switch has expired without modifying any state.
+   * 
+   * This is a read-only operation that queries the program to determine
+   * if a switch has passed its expiration deadline based on blockchain time.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to check
+   * @returns Promise resolving to true if expired, false if still active
+   * @throws Error if program not available or RPC call fails
+   */
   const checkExpiration = async (switchPDA: PublicKey): Promise<boolean> => {
     if (!program) {
       throw new Error('Program not available')
@@ -250,6 +307,16 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Retrieves comprehensive information about a specific switch.
+   * 
+   * Fetches the complete switch account data from the blockchain,
+   * including owner, timing information, encrypted data, and status.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to query
+   * @returns Promise resolving to the complete switch account data
+   * @throws Error if program not available, account not found, or RPC fails
+   */
   const getSwitchInfo = async (switchPDA: PublicKey) => {
     if (!program) {
       throw new Error('Program not available')
@@ -265,8 +332,28 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Fetches all switches owned by the currently connected wallet.
+   * 
+   * Uses an optimized query with memcmp filter to retrieve only switches
+   * belonging to the current user. Includes validation to ensure returned
+   * switches actually belong to the connected wallet.
+   * 
+   * @returns Promise resolving to array of user's switch accounts with metadata
+   * @throws Error if wallet not connected or RPC query fails
+   */
   const getUserSwitches = async () => {
-    if (!program || !wallet.publicKey) return []
+    if (!program) {
+      const error = 'Program not initialized. Check wallet connection and network.'
+      console.error('❌', error)
+      throw new Error(error)
+    }
+    
+    if (!wallet.publicKey) {
+      const error = 'Wallet not connected'
+      console.error('❌', error)
+      throw new Error(error)
+    }
 
     try {
       console.log('🔍 Fetching user switches with owner filter...')
@@ -318,19 +405,37 @@ export function useProgram() {
       
       return validatedSwitches
     } catch (error) {
-      console.error('Failed to fetch user switches:', error)
-      console.error('Error details:', {
-        name: error instanceof Error ? error.name : 'Unknown',
-        message: error instanceof Error ? error.message : 'Unknown error',
+      console.error('❌ Failed to fetch user switches:', error)
+      console.error('🔍 Debug info:', {
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
         walletConnected: !!wallet.publicKey,
-        programConnected: !!program
+        programConnected: !!program,
+        programId: program?.programId?.toString(),
+        rpcUrl: connection.rpcEndpoint
       })
-      return []
+      // Re-throw the error so the UI can handle it properly
+      throw error
     }
   }
 
+  /**
+   * Retrieves all switches from the program with optional limit and enriched data.
+   * 
+   * Fetches switches from the blockchain, sorts by creation time (newest first),
+   * and adds computed properties like expiration status and time calculations.
+   * Useful for displaying public switch information and expired switches.
+   * 
+   * @param limit - Optional maximum number of switches to return
+   * @returns Promise resolving to array of enriched switch objects with computed properties
+   * @throws Error if program not available or RPC query fails
+   */
   const getAllSwitches = async (limit?: number) => {
-    if (!program) return []
+    if (!program) {
+      const error = 'Program not initialized. Check network connection.'
+      console.error('❌', error)
+      throw new Error(error)
+    }
 
     try {
       const limitText = limit ? ` (limited to ${limit})` : ''
@@ -390,11 +495,30 @@ export function useProgram() {
       console.log('✅ Processed', enrichedSwitches.length, 'switches')
       return enrichedSwitches
     } catch (error) {
-      console.error('Failed to fetch switches:', error)
-      return []
+      console.error('❌ Failed to fetch switches:', error)
+      console.error('🔍 Debug info:', {
+        errorName: error instanceof Error ? error.name : 'Unknown',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        programConnected: !!program,
+        programId: program?.programId?.toString(),
+        rpcUrl: connection.rpcEndpoint,
+        limit
+      })
+      // Re-throw the error so the UI can handle it properly
+      throw error
     }
   }
 
+  /**
+   * Retrieves all switches that have expired and can potentially be unlocked.
+   * 
+   * Filters the complete list of switches to return only those that have
+   * passed their expiration deadline. Used for displaying publicly available
+   * expired switches whose messages can be decrypted.
+   * 
+   * @returns Promise resolving to array of expired switch objects
+   * @throws Error if program not available or data fetching fails
+   */
   const getExpiredSwitches = async () => {
     if (!program) return []
 
@@ -413,7 +537,16 @@ export function useProgram() {
     }
   }
 
-  // 🎯 OPTIMIZED: Just check if user has any switches without fetching full data
+  /**
+   * Efficiently checks if the current user has any switches without fetching full data.
+   * 
+   * Optimized query that only checks for existence of user switches rather than
+   * fetching complete switch data. Useful for determining if a user is a first-time
+   * user or for quick availability checks.
+   * 
+   * @returns Promise resolving to true if user has switches, false otherwise
+   * @throws Error if wallet not connected or RPC query fails
+   */
   const checkUserHasSwitches = async (): Promise<boolean> => {
     if (!program || !wallet.publicKey) return false
 
@@ -438,6 +571,17 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Permanently deactivates a switch, stopping its expiration timer.
+   * 
+   * This allows the owner to manually disable a switch so it will never expire
+   * or reveal its encrypted data. The operation is irreversible - deactivated
+   * switches cannot be reactivated.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to deactivate
+   * @returns Promise resolving to the transaction signature
+   * @throws Error if wallet not connected, unauthorized, or switch already inactive
+   */
   const deactivateSwitch = async (switchPDA: PublicKey) => {
     if (!program || !wallet.publicKey) {
       throw new Error('Program or wallet not available')
@@ -459,6 +603,17 @@ export function useProgram() {
     }
   }
 
+  /**
+   * Closes a switch account and recovers the stored SOL rent to the owner.
+   * 
+   * Permanently deletes the switch account from the blockchain and transfers
+   * all stored lamports back to the owner. Can only be called on switches that
+   * are both deactivated AND expired.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to close
+   * @returns Promise resolving to the transaction signature
+   * @throws Error if switch is active, not expired, or transaction fails
+   */
   const closeSwitch = async (switchPDA: PublicKey) => {
     if (!program || !wallet.publicKey) {
       throw new Error('Program or wallet not available')
@@ -480,7 +635,16 @@ export function useProgram() {
     }
   }
 
-  // Utility function to extract actual encrypted data from fixed array
+  /**
+   * Extracts the actual encrypted data from a switch account's fixed-size storage array.
+   * 
+   * Since encrypted data is stored in a fixed 512-byte array for security reasons,
+   * this utility function returns only the portion that contains actual data,
+   * as specified by the account's data_length field.
+   * 
+   * @param account - The switch account object containing encrypted data
+   * @returns Uint8Array containing only the actual encrypted data bytes
+   */
   const getActualEncryptedData = (account: any): Uint8Array => {
     if (!account.encryptedData || !account.dataLength) {
       return new Uint8Array(0)

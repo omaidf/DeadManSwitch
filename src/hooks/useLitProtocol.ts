@@ -8,6 +8,21 @@ interface EncryptionResult {
   encryptedSymmetricKey: string
 }
 
+/**
+ * Custom React hook for integrating with Lit Protocol encryption services.
+ * 
+ * Provides client-side encryption and decryption capabilities using Lit Protocol's
+ * decentralized network. Handles:
+ * - Connection to Lit Protocol network
+ * - Message encryption with Solana-based access conditions
+ * - Message decryption when access conditions are met
+ * - Dead man's switch specific logic for time-based access control
+ * 
+ * The hook automatically connects to the configured Lit Protocol network and
+ * manages connection state, errors, and cleanup.
+ * 
+ * @returns Object containing Lit client, connection state, and encryption functions
+ */
 export function useLitProtocol() {
   const [litNodeClient, setLitNodeClient] = useState<any>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -74,6 +89,25 @@ export function useLitProtocol() {
     }
   }, [])
 
+  /**
+   * Encrypts a message using Lit Protocol with Dead Man's Switch access conditions.
+   * 
+   * This function encrypts a message client-side and stores the decryption key on Lit Protocol
+   * with specific access conditions. The message can only be decrypted when the corresponding
+   * Solana switch has expired (is_active = false).
+   * 
+   * @param message - The plaintext message to encrypt
+   * @param switchId - Optional switch ID for PDA derivation (defaults to current timestamp)
+   * @returns Promise resolving to encrypted data and symmetric key hash
+   * @throws Error if Lit Protocol not connected, wallet not connected, or encryption fails
+   * 
+   * @example
+   * ```typescript
+   * const result = await encryptMessage("Secret message", "12345");
+   * // result.encryptedString contains the encrypted data to store on-chain
+   * // result.encryptedSymmetricKey contains the key hash for verification
+   * ```
+   */
   const encryptMessage = async (message: string, switchId?: string): Promise<EncryptionResult> => {
     if (!litNodeClient) {
       throw new Error('Lit Protocol not connected')
@@ -181,6 +215,30 @@ export function useLitProtocol() {
     }
   }
 
+  /**
+   * Decrypts a message using Lit Protocol when access conditions are satisfied.
+   * 
+   * This function attempts to decrypt a previously encrypted message by checking
+   * if the associated Dead Man's Switch has expired. Decryption only succeeds if
+   * the switch's is_active field is false, indicating the owner failed to ping
+   * within the required interval.
+   * 
+   * @param encryptedString - The encrypted data (JSON string from encryptMessage)
+   * @param encryptedSymmetricKey - Optional symmetric key hash (for legacy format)
+   * @param _switchId - Optional switch ID (parameter preserved for compatibility)
+   * @returns Promise resolving to the decrypted plaintext message
+   * @throws Error if Lit Protocol not connected, access conditions not met, or decryption fails
+   * 
+   * @example
+   * ```typescript
+   * try {
+   *   const decrypted = await decryptMessage(encryptedData);
+   *   console.log("Revealed message:", decrypted);
+   * } catch (error) {
+   *   console.log("Switch not expired yet or decryption failed");
+   * }
+   * ```
+   */
   const decryptMessage = async (
     encryptedString: string, 
     encryptedSymmetricKey?: string,

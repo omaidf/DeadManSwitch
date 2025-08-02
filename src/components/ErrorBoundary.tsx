@@ -10,17 +10,53 @@ interface State {
   errorInfo?: ErrorInfo
 }
 
+/**
+ * Error boundary component that catches JavaScript errors in child components.
+ * 
+ * This React class component implements error boundaries to gracefully handle
+ * runtime errors that would otherwise crash the application. It provides:
+ * - Error catching and state management
+ * - User-friendly error display with recovery options
+ * - Development mode error details for debugging
+ * - Fallback UI with navigation options
+ * 
+ * The error boundary catches errors during rendering, in lifecycle methods,
+ * and in constructors of the whole tree below them.
+ */
 export class ErrorBoundary extends Component<Props, State> {
+  /**
+   * Initializes the error boundary with default state.
+   * 
+   * @param props - Component props containing children to protect
+   */
   constructor(props: Props) {
     super(props)
     this.state = { hasError: false }
   }
 
+  /**
+   * Static lifecycle method called when an error is thrown during rendering.
+   * 
+   * This method is called during the "render" phase, so side effects are not permitted.
+   * Updates the component state to trigger the error UI on the next render.
+   * 
+   * @param error - The error that was thrown
+   * @returns New state object to trigger error UI
+   */
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI
     return { hasError: true, error }
   }
 
+  /**
+   * Lifecycle method called when an error is caught by the error boundary.
+   * 
+   * This method is called during the "commit" phase, so side effects are permitted.
+   * Used for logging errors and updating state with detailed error information.
+   * 
+   * @param error - The error that was thrown
+   * @param errorInfo - Object containing component stack trace information
+   */
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('🚨 Error caught by ErrorBoundary:', error)
     console.error('🚨 Error info:', errorInfo)
@@ -31,6 +67,17 @@ export class ErrorBoundary extends Component<Props, State> {
     })
   }
 
+  /**
+   * Renders either the error fallback UI or the children components.
+   * 
+   * When an error is caught, displays a comprehensive error page with:
+   * - User-friendly error message
+   * - Recovery options (reload page, go home)
+   * - Development mode error details (stack trace, component stack)
+   * - Styled error UI consistent with application design
+   * 
+   * @returns Error UI if error occurred, otherwise renders children normally
+   */
   render() {
     if (this.state.hasError) {
       return (

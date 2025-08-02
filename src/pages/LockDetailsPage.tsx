@@ -7,6 +7,25 @@ import { useLitProtocol } from '../hooks/useLitProtocol'
 import type { DeadManSwitch } from '../types'
 import { safeBigIntToNumber, safeDateFromTimestamp, safeTimeCalculation } from '../types'
 
+/**
+ * Lock details page component for viewing individual switch information.
+ * 
+ * This page provides comprehensive details about a specific switch:
+ * - Real-time countdown timer with live updates
+ * - Complete switch metadata and configuration
+ * - Owner-specific actions (ping for active switches)
+ * - Public decryption for expired switches
+ * - Navigation and error handling
+ * 
+ * Features:
+ * - Live countdown timer updating every second
+ * - Owner detection and permission-based UI
+ * - Solscan integration for blockchain exploration
+ * - Real-time status updates after actions
+ * - Comprehensive error handling and recovery
+ * 
+ * @returns JSX element containing the complete lock details interface
+ */
 export const LockDetailsPage: FC = () => {
   const { lockId } = useParams<{ lockId: string }>()
   const { connected, publicKey } = useWallet()
@@ -86,8 +105,14 @@ export const LockDetailsPage: FC = () => {
     }
 
     loadSwitchData()
-  }, [lockId, getSwitchInfo])
+  }, [lockId]) // Removed getSwitchInfo to prevent infinite loop
 
+  /**
+   * Handles pinging the switch to reset its expiration timer.
+   * 
+   * Only available to the switch owner for active switches.
+   * Updates the local state with fresh data after successful ping.
+   */
   const handlePing = async () => {
     if (!switchData || !connected) return
 
@@ -119,6 +144,12 @@ export const LockDetailsPage: FC = () => {
     }
   }
 
+  /**
+   * Handles decryption of expired switch messages using Lit Protocol.
+   * 
+   * Extracts encrypted data from the switch account and attempts
+   * decryption through Lit Protocol's access control system.
+   */
   const handleDecrypt = async () => {
     if (!switchData) return
 
@@ -205,6 +236,12 @@ export const LockDetailsPage: FC = () => {
 
   const isOwner = connected && publicKey && account.owner.equals(publicKey)
 
+  /**
+   * Formats time duration with full precision (days, hours, minutes, seconds).
+   * 
+   * @param seconds - Time duration in seconds
+   * @returns Formatted string with appropriate time units
+   */
   const formatTime = (seconds: number) => {
     const days = Math.floor(seconds / 86400)
     const hours = Math.floor((seconds % 86400) / 3600)
@@ -222,12 +259,22 @@ export const LockDetailsPage: FC = () => {
     }
   }
 
+  /**
+   * Determines text color based on switch expiration status.
+   * 
+   * @returns Tailwind CSS color class for status display
+   */
   const getStatusColor = () => {
     if (isExpired) return 'text-red-400'
     if (isExpiringSoon) return 'text-yellow-400'
     return 'text-green-400'
   }
 
+  /**
+   * Determines status text based on switch expiration state.
+   * 
+   * @returns Human-readable status string
+   */
   const getStatusText = () => {
     if (isExpired) return 'EXPIRED'
     if (isExpiringSoon) return 'EXPIRING SOON'
@@ -284,9 +331,9 @@ export const LockDetailsPage: FC = () => {
             
             <div>
               <label className="text-sm text-gray-400">Owner</label>
-              <div className="font-mono text-white break-all bg-gray-800 p-2 rounded text-sm">
+              <a href={`https://solscan.io/account/${account.owner.toString()}?cluster=devnet`} target="_blank" rel="noopener noreferrer" className="font-mono text-white break-all bg-gray-800 p-2 rounded text-sm underline hover:text-purple-300">
                 {account.owner.toString()}
-              </div>
+              </a>
             </div>
             
             <div className="grid grid-cols-2 gap-4">

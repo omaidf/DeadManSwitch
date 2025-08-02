@@ -15,6 +15,22 @@ export interface NetworkInfo {
   isDetecting: boolean
 }
 
+/**
+ * Custom React hook for detecting and monitoring Solana network configuration.
+ * 
+ * This hook provides real-time network detection capabilities to ensure the
+ * application is connected to the expected Solana network. It compares the
+ * configured network (from environment) with the actual detected network and
+ * identifies mismatches that could cause transaction failures.
+ * 
+ * Features:
+ * - Automatic network detection via RPC URL patterns and genesis hash
+ * - Real-time monitoring of wallet connection state
+ * - Network mismatch detection and warnings
+ * - Support for devnet, testnet, and mainnet-beta networks
+ * 
+ * @returns Object containing network information, detection state, and error status
+ */
 export function useNetworkDetection() {
   const { connection } = useConnection()
   const wallet = useWallet()

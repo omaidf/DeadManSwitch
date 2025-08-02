@@ -15,6 +15,22 @@ interface SwitchCardProps {
   isPinging: boolean
 }
 
+/**
+ * Individual switch card component for displaying switch information and controls.
+ * 
+ * Renders a comprehensive card showing:
+ * - Switch identification and creation details
+ * - Current status (active/expired) with color-coded indicators
+ * - Timing information (interval, last ping, time remaining)
+ * - Ping button for active switches
+ * - Expiration warnings and notifications
+ * 
+ * @param props - Component props
+ * @param props.switch_ - Switch data object with account info and public key
+ * @param props.onPing - Callback function to ping the switch
+ * @param props.isPinging - Boolean indicating if ping operation is in progress
+ * @returns JSX element with switch card UI
+ */
 const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
   const { account, publicKey } = switch_
   
@@ -23,18 +39,46 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
   const isExpiringSoon = timeRemaining <= 3600 && timeRemaining > 0 // Less than 1 hour
   const lastPing = safeBigIntToNumber(account.lastPing)
 
+  /**
+   * Formats time remaining in a human-readable format.
+   * 
+   * Converts seconds to a compact string representation showing
+   * the most relevant time units (days, hours, minutes).
+   * 
+   * @param seconds - Time remaining in seconds
+   * @returns Formatted string like "2d 5h", "3h 45m", or "EXPIRED"
+   */
+  /**
+   * Formats remaining seconds into a concise, human-friendly string.
+   *  • < 1 min   → “< 1m”
+   *  • < 1 hour → “Xm Ys”
+   *  • < 1 day  → “Xh Ym”
+   *  • < 1 year → “Xd Yh”
+   *  • ≥ 1 year → “Xy Zd” (years rounded down)
+   */
   const formatTimeRemaining = (seconds: number) => {
     if (seconds <= 0) return 'EXPIRED'
-    
-    const days = Math.floor(seconds / 86400)
-    const hours = Math.floor((seconds % 86400) / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    
-    if (days > 0) return `${days}d ${hours}h`
-    if (hours > 0) return `${hours}h ${mins}m`
-    return `${mins}m`
+
+    const years = Math.floor(seconds / 31_536_000) // 365 d
+    const days  = Math.floor((seconds % 31_536_000) / 86_400)
+    const hours = Math.floor((seconds % 86_400) / 3_600)
+    const mins  = Math.floor((seconds % 3_600) / 60)
+
+    if (years > 0)           return `${years}y ${days}d`
+    if (days > 0)            return `${days}d ${hours}h`
+    if (hours > 0)           return `${hours}h ${mins}m`
+    if (mins > 0)            return `${mins}m`
+    return '< 1m'
   }
 
+  /**
+   * Determines the appropriate color classes for switch status indicator.
+   * 
+   * Returns Tailwind CSS classes for styling the status badge based on
+   * switch expiration state and time remaining.
+   * 
+   * @returns String containing Tailwind CSS classes for status styling
+   */
   const getStatusColor = () => {
     if (isExpired) return 'text-red-400 bg-red-900/20 border-red-500/30'
     if (isExpiringSoon) return 'text-yellow-400 bg-yellow-900/20 border-yellow-500/30'
@@ -111,25 +155,69 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
   )
 }
 
+/**
+ * My Switches page component for managing user's Dead Man's Switch instances.
+ * 
+ * This page provides a comprehensive dashboard for switch management:
+ * - Displays all switches owned by the connected wallet
+ * - Shows real-time status, timing, and expiration information
+ * - Provides ping functionality to reset switch timers
+ * - Includes statistics and overview of switch portfolio
+ * - Handles loading states and error conditions gracefully
+ * 
+ * Features:
+ * - Optimized queries with caching to avoid rate limiting
+ * - Manual refresh capability for real-time updates
+ * - First-time user detection and onboarding
+ * - Responsive grid layout for switch cards
+ * - Quick statistics dashboard
+ * 
+ * @returns JSX element containing the complete switches management interface
+ */
 export const MySwitchesPage: FC = () => {
   const { connected } = useWallet()
   const { getUserSwitches, pingSwitch } = useProgram()
   const [switches, setSwitches] = useState<Array<{ publicKey: PublicKey, account: DeadManSwitch }>>([])
-  const [isLoading, setIsLoading] = useState(false) // Changed to false to avoid auto-loading
+  const [isLoading, setIsLoading] = useState(false) // Will be set to true when auto-loading starts
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pingingSwitch, setPingingSwitch] = useState<string | null>(null)
-  const isMountedRef = useRef(true)
+    // Track component mount status to avoid updating state after unmount
+  const isMountedRef = useRef(false)
 
   useEffect(() => {
+    // Mark as mounted when effect runs (handles React Strict Mode double render)
+    isMountedRef.current = true
     return () => {
+      // Cleanup toggles the flag so async callbacks can check before updating state
       isMountedRef.current = false
     }
   }, [])
 
+  // Debug: Track switches state changes
+  useEffect(() => {
+    console.log('🔍 Debug - switches state changed:', { length: switches.length, hasLoadedOnce, isLoading })
+  }, [switches, hasLoadedOnce, isLoading])
+
+  /**
+   * Loads user switches from the blockchain with caching and optimization.
+   * 
+   * This function implements an optimized loading strategy to minimize RPC calls:
+   * - Uses cached data when available to avoid rate limiting
+   * - Only reloads when forced or when switching users
+   * - Provides comprehensive error handling and loading states
+   * 
+   * @param forceReload - Whether to bypass cache and reload from blockchain
+   */
   const loadSwitches = useCallback(async (forceReload = false) => {
     if (!connected) {
       console.log('❌ Not connected, skipping switch load')
+      return
+    }
+
+    // Prevent concurrent calls
+    if (isLoading && !forceReload) {
+      console.log('⏳ Already loading, skipping duplicate call')
       return
     }
 
@@ -150,9 +238,16 @@ export const MySwitchesPage: FC = () => {
         
         if (isMountedRef.current) {
           console.log('✅ Setting switches data and hasLoadedOnce=true')
-          setSwitches(userSwitches as any)
+          console.log('🔍 Debug - switches data:', userSwitches)
+          console.log('🔍 Debug - current state before update:', { switchesLength: switches.length, hasLoadedOnce, isLoading })
+          
+          // CRITICAL FIX: Use functional updates to ensure proper state sequencing
+          setSwitches(prevSwitches => {
+            console.log('🔍 Setting switches from', prevSwitches.length, 'to', userSwitches.length)
+            return userSwitches as any
+          })
           setHasLoadedOnce(true)
-          setIsLoading(false) // Set loading false immediately after setting data
+          setIsLoading(false)
           console.log('✅ All states updated successfully')
         }
       } catch (err) {
@@ -162,8 +257,17 @@ export const MySwitchesPage: FC = () => {
           setIsLoading(false)
         }
       }
-  }, [connected, getUserSwitches]) // Removed hasLoadedOnce from deps to prevent loop
+  }, [connected]) // Program functions are used directly, no need in deps
 
+  /**
+   * Handles pinging a specific switch to reset its expiration timer.
+   * 
+   * Executes the ping transaction and updates the local switch data
+   * to reflect the new timing information. Provides user feedback
+   * during the process and handles errors gracefully.
+   * 
+   * @param switchPDA - The Program Derived Address of the switch to ping
+   */
   const handlePing = async (switchPDA: PublicKey) => {
     setPingingSwitch(switchPDA.toString())
     setError(null) // Clear any previous errors
@@ -188,9 +292,11 @@ export const MySwitchesPage: FC = () => {
 
   // Separate effect for connection state changes
   useEffect(() => {
+    console.log('🔍 Debug - connection useEffect triggered:', { connected })
     if (!connected) {
       // Wallet disconnected - clear everything
       if (isMountedRef.current) {
+        console.log('🔌 Wallet disconnected, clearing all data...')
         setSwitches([])
         setIsLoading(false)
         setHasLoadedOnce(false)
@@ -199,13 +305,14 @@ export const MySwitchesPage: FC = () => {
     }
   }, [connected])
 
-  // Single effect for initial load - DISABLED auto-loading
+  // Single effect for initial load - smart auto-loading with cache respect
   useEffect(() => {
-    // Don't auto-load anymore, let user click the button
-    if (connected) {
-      console.log('🎯 Wallet connected, ready to load switches manually')
+    console.log('🔍 Debug - useEffect triggered:', { connected, hasLoadedOnce, isLoading })
+    if (connected && !hasLoadedOnce && !isLoading) {
+      console.log('🎯 Wallet connected, auto-loading user switches...')
+      loadSwitches(false) // Don't force reload, respect cache
     }
-  }, [connected]) // Only depend on connected to avoid loops
+  }, [connected, hasLoadedOnce, isLoading]) // Added isLoading to prevent calls while loading
 
   if (!connected) {
     return (
@@ -246,87 +353,15 @@ export const MySwitchesPage: FC = () => {
 
 
 
-      {isLoading ? (
-        <div className="space-y-6">
-          {/* Show actual switches if we have them while loading */}
-          {switches.length > 0 && (
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-3">Your Switches ({switches.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {switches.map((switch_) => (
-                  <SwitchCard
-                    key={switch_.publicKey.toString()}
-                    switch_={switch_}
-                    onPing={handlePing}
-                    isPinging={pingingSwitch === switch_.publicKey.toString()}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Loading skeleton only if no switches yet */}
-          {switches.length === 0 && (
-            <div className="text-center py-12">
-              <div className="glassmorphism p-8">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
-                <p className="text-white">Loading your switches...</p>
-                <p className="text-sm text-gray-400 mt-2">This may take a moment...</p>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : switches.length === 0 && hasLoadedOnce ? (
-        <div className="text-center py-12">
-          <div className="bg-gray-800 rounded-lg p-8">
-            <h3 className="text-xl font-semibold text-white mb-4">No Switches Found</h3>
-            <p className="text-gray-300 mb-6">
-              You haven't created any dead man's switches yet.
-            </p>
-            <a
-              href="/create"
-              className="inline-block bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-            >
-              Create Your First Switch
-            </a>
-          </div>
-        </div>
-      ) : !hasLoadedOnce ? (
-        <div className="text-center py-12">
-          <div className="glassmorphism p-8">
-            <button
-              onClick={() => loadSwitches(true)}
-              disabled={isLoading}
-              className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-800 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-            >
-              {isLoading ? 'Loading...' : '🔍 Load My Switches'}
-            </button>
-          </div>
-        </div>
-      ) : (
+      {/* SIMPLIFIED LOGIC: Show switches if we have them, regardless of loading state */}
+      {switches.length > 0 ? (
         <>
           {/* Debug info */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mb-4 p-3 bg-gray-800 rounded text-xs text-gray-300">
-              DEBUG: isLoading={isLoading.toString()}, hasLoadedOnce={hasLoadedOnce.toString()}, switches.length={switches.length}
-            </div>
-          )}
+          
           
           <div>
-            <h3 className="text-lg font-semibold text-white mb-3">Your Switches ({switches.length})</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {switches.map((switch_) => (
-                <SwitchCard
-                  key={switch_.publicKey.toString()}
-                  switch_={switch_}
-                  onPing={handlePing}
-                  isPinging={pingingSwitch === switch_.publicKey.toString()}
-                />
-              ))}
-            </div>
-
             {/* Stats */}
-            <div className="bg-gray-800 rounded-lg p-6">
+            <div className="bg-gray-800 rounded-lg p-6 mb-6">
               <h3 className="text-lg font-semibold text-white mb-3">Quick Stats</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                 <div>
@@ -345,13 +380,11 @@ export const MySwitchesPage: FC = () => {
                       const now = Math.floor(Date.now() / 1000)
                       const lastPing = typeof s.account.lastPing === 'bigint' ? Number(s.account.lastPing) : s.account.lastPing
                       const pingInterval = typeof s.account.pingInterval === 'bigint' ? Number(s.account.pingInterval) : s.account.pingInterval
-                      
-                      // Safe calculation with overflow protection
                       if (lastPing <= Number.MAX_SAFE_INTEGER - pingInterval) {
                         const timeRemaining = (lastPing + pingInterval) - now
                         return s.account.active && timeRemaining <= 3600 && timeRemaining > 0
                       }
-                      return false // Skip if overflow risk
+                      return false
                     }).length}
                   </p>
                   <p className="text-sm text-gray-400">Expiring Soon</p>
@@ -362,20 +395,67 @@ export const MySwitchesPage: FC = () => {
                       const now = Math.floor(Date.now() / 1000)
                       const lastPing = typeof s.account.lastPing === 'bigint' ? Number(s.account.lastPing) : s.account.lastPing
                       const pingInterval = typeof s.account.pingInterval === 'bigint' ? Number(s.account.pingInterval) : s.account.pingInterval
-                      
-                      // Safe calculation with overflow protection
                       if (lastPing <= Number.MAX_SAFE_INTEGER - pingInterval) {
                         return (lastPing + pingInterval) < now
                       }
-                      return true // Default to expired if overflow risk
+                      return true
                     }).length}
                   </p>
                   <p className="text-sm text-gray-400">Expired</p>
                 </div>
               </div>
             </div>
+
+            <h3 className="text-lg font-semibold text-white mb-3">Your Switches ({switches.length})</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+              {switches.map((switch_) => (
+                <SwitchCard
+                  key={switch_.publicKey.toString()}
+                  switch_={switch_}
+                  onPing={handlePing}
+                  isPinging={pingingSwitch === switch_.publicKey.toString()}
+                />
+              ))}
+            </div>
+
+            {/* Duplicate Stats removed */}
           </div>
         </>
+      ) : isLoading ? (
+        <div className="text-center py-12">
+          <div className="glassmorphism p-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+            <p className="text-white">Loading your switches...</p>
+            <p className="text-sm text-gray-400 mt-2">This may take a moment...</p>
+          </div>
+        </div>
+      ) : hasLoadedOnce ? (
+        <div className="text-center py-12">
+          <div className="bg-gray-800 rounded-lg p-8">
+            <h3 className="text-xl font-semibold text-white mb-4">No Switches Found</h3>
+            <p className="text-gray-300 mb-6">
+              You haven't created any dead man's switches yet.
+            </p>
+            <a
+              href="/create"
+              className="inline-block bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Create Your First Switch
+            </a>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-12">
+          <div className="glassmorphism p-8">
+            <button
+              onClick={() => loadSwitches(true)}
+              disabled={isLoading}
+              className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-800 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              {isLoading ? 'Loading...' : '🔍 Load My Switches'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

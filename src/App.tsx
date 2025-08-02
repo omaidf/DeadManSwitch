@@ -9,7 +9,12 @@ import { MySwitchesPage } from './pages/MySwitchesPage'
 import { ViewLocksPage } from './pages/ViewLocksPage'
 import { LockDetailsPage } from './pages/LockDetailsPage'
 
-// Simple placeholder components for help and about pages
+/**
+ * Help page component that displays instructions for using the Dead Man's Switch application.
+ * Provides step-by-step guidance on wallet connection, switch creation, check-ins, and message revelation.
+ * 
+ * @returns JSX element containing the help documentation
+ */
 const HelpPage: FC = () => (
   <div className="max-w-4xl mx-auto">
     <h1 className="text-3xl font-bold text-white mb-4">Help</h1>
@@ -37,6 +42,13 @@ const HelpPage: FC = () => (
   </div>
 )
 
+/**
+ * About page component that provides information about the Dead Man's Switch dApp.
+ * Explains the application's purpose, technology stack, and core functionality.
+ * Includes details about Solana blockchain integration and Lit Protocol encryption.
+ * 
+ * @returns JSX element containing the about information
+ */
 const AboutPage: FC = () => (
   <div className="max-w-4xl mx-auto">
     <h1 className="text-3xl font-bold text-white mb-4">About</h1>
@@ -68,6 +80,12 @@ const AboutPage: FC = () => (
   </div>
 )
 
+/**
+ * 404 Not Found page component for handling invalid routes.
+ * Displays a user-friendly error message and provides navigation back to home.
+ * 
+ * @returns JSX element with 404 error content and home navigation
+ */
 const NotFoundPage: FC = () => (
   <div className="max-w-2xl mx-auto text-center">
     <h1 className="text-4xl font-bold text-white mb-4">404</h1>
@@ -78,6 +96,26 @@ const NotFoundPage: FC = () => (
   </div>
 )
 
+/**
+ * Main application component that sets up routing and global providers.
+ * 
+ * Wraps the entire application with:
+ * - ErrorBoundary for error handling
+ * - AppWalletProvider for Solana wallet integration
+ * - Layout component for consistent UI structure
+ * - React Router for client-side navigation
+ * 
+ * Defines all application routes including:
+ * - Home page (/)
+ * - Create switch (/create)
+ * - My switches (/my-switches)
+ * - View locks (/view-locks)
+ * - Lock details (/lock/:lockId)
+ * - Help and About pages
+ * - 404 fallback for invalid routes
+ * 
+ * @returns The complete application JSX structure
+ */
 const App: FC = () => {
   return (
     <ErrorBoundary>
