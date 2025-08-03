@@ -57,6 +57,7 @@ export const CreatePage = () => {
   const [txSignature, setTxSignature] = useState<string | null>(null)
   const [showToast, setShowToast] = useState(false)
   const isMountedRef = useRef(true)
+  const lastSubmissionTime = useRef(0)
 
   useEffect(() => {
     return () => {
@@ -80,6 +81,21 @@ export const CreatePage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!connected || !message.trim()) return
+
+    // Prevent double submissions
+    if (isCreating) {
+      console.log('🚫 Creation already in progress, ignoring duplicate submission')
+      return
+    }
+
+    // Prevent rapid resubmissions (minimum 2 seconds between attempts)
+    const now = Date.now()
+    if (now - lastSubmissionTime.current < 2000) {
+      console.log('🚫 Too soon since last submission, please wait')
+      setError('Please wait a moment before trying again')
+      return
+    }
+    lastSubmissionTime.current = now
 
     setIsCreating(true)
     setError(null)
@@ -125,8 +141,11 @@ export const CreatePage = () => {
         signTransaction: !!wallet.signTransaction 
       })
       
-      // Generate a consistent switch ID (u64 for contract, string for Lit Protocol)
-      const switchIdNumber = Date.now() // u64 for Solana contract
+      // Generate a unique switch ID (u64 for contract, string for Lit Protocol)
+      // Use timestamp + random component to ensure uniqueness even with rapid submissions
+      const timestamp = Date.now()
+      const randomComponent = Math.floor(Math.random() * 1000) // 0-999
+      const switchIdNumber = timestamp * 1000 + randomComponent // u64 for Solana contract
       const switchIdString = switchIdNumber.toString() // String for Lit Protocol PDA derivation
       console.log('🔧 Generated switch ID (number):', switchIdNumber, '(type:', typeof switchIdNumber, ')')
       console.log('🔧 Generated switch ID (string):', switchIdString, '(type:', typeof switchIdString, ')')

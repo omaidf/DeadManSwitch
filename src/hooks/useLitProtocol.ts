@@ -620,25 +620,25 @@ Expiration Time: ${expirationTime}`
         new PublicKey(config.PROGRAM_ID)
       );
 
-              // Simple access control: any valid Solana address can decrypt
-        // UI/UX enforces the real expiration logic by only showing decrypt buttons when:
-        // 1. Switch is time-expired (isExpired = true), OR
-        // 2. Switch is marked as expired on-chain (account.expired = true)
-        const solRpcConditions = [
-          {
-            method: "getBalance",
-            params: [":userAddress"],
-            pdaParams: [],
-            pdaInterface: { offset: 0, fields: {} },
-            pdaKey: "",
-            chain: "solana",
-            returnValueTest: {
-              key: "",
-              comparator: ">=",
-              value: "0", // Every valid Solana address has a balance >= 0
-            },
+      // Simple access control: any valid Solana address can decrypt
+      // Server-side enforces the real expiration logic by only showing decrypt buttons when:
+      // 1. Switch is time-expired (isExpired = true), OR
+      // 2. Switch is marked as expired on-chain (account.expired = true)
+      const solRpcConditions = [
+        {
+          method: "getBalance",
+          params: [":userAddress"],
+          pdaParams: [],
+          pdaInterface: { offset: 0, fields: {} },
+          pdaKey: "",
+          chain: "solana",
+          returnValueTest: {
+            key: "",
+            comparator: ">=",
+            value: "0", // Every valid Solana address has a balance >= 0
           },
-        ];
+        },
+      ];
 
 
       // Switch metadata is embedded in compact format
@@ -657,6 +657,15 @@ Expiration Time: ${expirationTime}`
 
 
       const { ciphertext, dataToEncryptHash } = await encryptString(encryptParams, litNodeClient)
+      
+      // === Detailed snapshot of encryption output & parameters ===
+      console.log('📊 encryptString() output:');
+      console.log('  • solRpcConditions:', JSON.stringify(solRpcConditions, null, 2));
+      console.log('  • ciphertext:', typeof ciphertext === 'string' ? ciphertext : Buffer.from(ciphertext).toString('base64'));
+      console.log('  • dataToEncryptHash:', dataToEncryptHash);
+      console.log('  • authSig:', authSig);
+      console.log('  • chain:', 'solana');
+      // === End snapshot ===
 
       // Helper – detect if input is already base64 to avoid double-encoding
       const isAlreadyBase64 = (data: any): boolean => {
@@ -685,7 +694,7 @@ Expiration Time: ${expirationTime}`
       console.log('🔧 Access control: Solana RPC conditions only')
       console.log('🔧 Chain: solana')
       console.log('🔧 Switch PDA:', switchPDA.toString())
-      console.log('🔧 Decryption requires expired field = true')
+      console.log('🔧 Decryption requires expired field = true (enforced server-side)')
 
       // Create encrypted string
       const finalEncryptedString = JSON.stringify(compactEncryptedData)
@@ -998,6 +1007,15 @@ Expiration Time: ${expirationTime}`
 
     console.log('🔍 Step 10: EXECUTING LIT PROTOCOL DECRYPTION...');
     console.log('⏱️ Starting decryption at:', new Date().toISOString());
+    
+    // === Detailed parameter snapshot before decryptToString ===
+    console.log('📊 decryptToString() parameters:');
+    console.log('  • solRpcConditions:', JSON.stringify(solRpcConditions, null, 2));
+    console.log('  • ciphertext:', ciphertext);
+    console.log('  • dataToEncryptHash:', dataToEncryptHash);
+    console.log('  • authSig:', authSig);
+    console.log('  • chain:', 'solana');
+    // === End snapshot ===
     
 
 

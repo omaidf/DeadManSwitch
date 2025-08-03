@@ -1,5 +1,5 @@
-# Use Node.js buster image
-FROM node:18-buster
+# Use Node.js official image
+FROM node:18-alpine
 
 # Set working directory
 WORKDIR /app
@@ -8,19 +8,16 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production=false
+RUN npm install
 
 # Copy source code
 COPY . .
 
-# Build the app
+# Build the application
 RUN npm run build
 
-# Install a simple HTTP server to serve the built app
-RUN npm install -g serve
-
-# Expose port 3000
-EXPOSE 3000
+# Expose port
+EXPOSE 4173
 
 # Start the application
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0"]

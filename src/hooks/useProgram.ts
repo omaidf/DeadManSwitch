@@ -302,6 +302,11 @@ export function useProgram() {
         console.error('  - Anchor version:', (Program as any).version || 'unknown')
       }
       
+      // Provide user-friendly error messages for common issues
+      if (error instanceof Error && error.message.includes('This transaction has already been processed')) {
+        throw new Error('This switch creation request was already processed. This can happen if you clicked submit multiple times quickly. Please wait a moment and try again with a new message if needed.')
+      }
+      
       throw error
     }
   }
