@@ -5,6 +5,9 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
 import { getConfig } from '../lib/config'
 
+// IPFS CID for the Dead Man's Switch Lit Action
+const DEAD_MANS_SWITCH_IPFS_CID = 'QmZRU4SSZXHr7eKSvsopghRYkAj3PAtu4yLNZzmUNLzzsS'
+
 interface EncryptionResult {
   encryptedString: string
   encryptedSymmetricKey: string
@@ -211,16 +214,19 @@ Expiration Time: ${expirationTime}`
       throw new Error(`Failed to sign authentication message: ${signError instanceof Error ? signError.message : 'Unknown signing error'}`)
     }
     
-    // Convert signature to the format expected by Lit Protocol
-    // Following the official docs: base58 decode -> hex encode -> remove 0x prefix
+    // Convert signature to Lit Protocol format for Solana SIWS
+    // Must follow: base58 decode -> hex encode -> remove 0x prefix
     let formattedSig: string
     try {
-      // The signature from Solana wallet is already in raw bytes (Uint8Array)
-      // Convert to hex WITHOUT 0x prefix (as per Lit Protocol docs)
+      // Solana wallets return raw signature bytes (64 bytes for ED25519)
+      // Convert raw signature bytes to hex string (64-byte ED25519 = 128 hex chars)
       formattedSig = Buffer.from(signature).toString('hex')
-      console.log('✅ Signature converted to hex format (no 0x prefix)')
+      
+      console.log('✅ Signature converted to hex (no 0x prefix)')
+      console.log('📝 Raw signature bytes:', signature.length)
+      console.log('📝 Hex signature length:', formattedSig.length)
     } catch (conversionError) {
-      console.error('❌ Failed to convert signature format:', conversionError)
+      console.error('❌ Failed to convert signature:', conversionError)
       throw new Error('Failed to format signature for Lit Protocol')
     }
     
@@ -232,16 +238,16 @@ Expiration Time: ${expirationTime}`
       address: address, // Solana address in base58 format
     }
 
-    // Validate the signature format before caching
-    if (authSig.sig.length < 128) { // ED25519 signatures should be 64 bytes = 128 hex chars
-      console.error('❌ Invalid signature length:', authSig.sig.length)
-      throw new Error('Generated signature length is invalid for ED25519')
+    // Validate ED25519 signature length (64 bytes = 128 hex characters)
+    if (authSig.sig.length !== 128) {
+      console.error('❌ Invalid signature length:', authSig.sig.length, '(expected 128 for ED25519)')
+      throw new Error(`ED25519 signature must be exactly 128 hex characters, got ${authSig.sig.length}`)
     }
 
-    // Additional validation: ensure it's valid hex
+    // Validate hex format
     if (!/^[0-9a-fA-F]+$/.test(authSig.sig)) {
       console.error('❌ Signature contains invalid hex characters')
-      throw new Error('Generated signature is not valid hexadecimal')
+      throw new Error('Signature must be valid hexadecimal')
     }
 
     // Cache the auth signature with timestamp
@@ -250,15 +256,12 @@ Expiration Time: ${expirationTime}`
       timestamp: Date.now()
     }))
 
-    console.log('✅ Created fresh SIWS auth signature with official format')
-    console.log('📝 Signature length:', authSig.sig.length, 'chars (ED25519 should be 128)')
+    console.log('✅ Created SIWS auth signature for Lit Protocol')
+    console.log('📝 Signature length:', authSig.sig.length, 'chars (128 for ED25519)')
     console.log('📝 Signature preview:', authSig.sig.substring(0, 16) + '...')
-    console.log('📝 Signature format: hex without 0x prefix (as per Lit docs)')
     console.log('📝 Address:', authSig.address)
     console.log('📝 DerivedVia:', authSig.derivedVia)
-    console.log('📝 Message format: Official SIWS specification')
-    console.log('📝 Chain ID: 0 (Solana standard)')
-    console.log('📝 Includes: Issued At, Expiration Time, Random Nonce')
+    console.log('📝 Chain ID: 0 (Solana)')
     console.log('📝 Valid for 10 minutes from:', issuedAt)
     
     return authSig
@@ -384,7 +387,7 @@ Expiration Time: ${expirationTime}`
       // Use proper Lit Action access control with IPFS CID + allow ANY Solana address to decrypt
       const accessControlConditions = [
         {
-          contractAddress: "ipfs://bafkreicakek3fljdgynqvjo6z6us3yfbj7sd32tvsv552zueqsdsxzo3jq",
+          contractAddress: `ipfs://${DEAD_MANS_SWITCH_IPFS_CID}`,
           standardContractType: "LitAction",
           chain: "ethereum", // Must be EVM chain for LitAction access control (even though Lit Action reads Solana)
           method: "checkExpiry", 
@@ -423,9 +426,6 @@ Expiration Time: ${expirationTime}`
         solRpcConditions,
         authSig,
         chain: 'solana',
-        jsParams: {
-          // No jsParams needed - switch PDA passed via accessControlConditions parameters
-        }
       };
 
       // 🐞 Debug: show all parameters sent to litNodeClient.encrypt
@@ -458,7 +458,7 @@ Expiration Time: ${expirationTime}`
       const compactEncryptedData = {
         c: ciphertextBase64, // Ciphertext (base64 once)
         h: dataToEncryptHash, // Hash (shortened key)
-        cid: "bafkreicakek3fljdgynqvjo6z6us3yfbj7sd32tvsv552zueqsdsxzo3jq", // Just the IPFS CID
+        cid: DEAD_MANS_SWITCH_IPFS_CID, // Just the IPFS CID
         pda: switchPDA.toString() // Just the switch PDA
         // Reconstruct full accessControlConditions during decryption
       }
@@ -475,13 +475,13 @@ Expiration Time: ${expirationTime}`
       console.log('\n📏 Component sizes:')
       console.log('  ciphertextBase64:', ciphertextBase64.length, 'chars')
       console.log('  dataToEncryptHash:', dataToEncryptHash.length, 'chars')
-      console.log('  IPFS CID:', "bafkreicakek3fljdgynqvjo6z6us3yfbj7sd32tvsv552zueqsdsxzo3jq".length, 'chars')
+      console.log('  IPFS CID:', DEAD_MANS_SWITCH_IPFS_CID.length, 'chars')
       console.log('  Switch PDA:', switchPDA.toString().length, 'chars')
       
       console.groupEnd()
 
       console.log('✅ Message encrypted with Dead Man\'s Switch logic')
-      console.log('🔧 Access control: IPFS Lit Action (bafkreicakek3fljdgynqvjo6z6us3yfbj7sd32tvsv552zueqsdsxzo3jq)')
+      console.log('🔧 Access control: IPFS Lit Action (' + DEAD_MANS_SWITCH_IPFS_CID + ')')
       console.log('🔧 Chain: ethereum (required for LitAction schema, Lit Action reads Solana data)')
       console.log('🔧 Switch PDA passed to Lit Action:', switchPDA.toString())
       console.log('🔧 Lit Action will dynamically fetch and check expiration on each decrypt attempt')
@@ -645,12 +645,14 @@ Expiration Time: ${expirationTime}`
       console.log('  - IPFS CID:', parsedData.cid);
       console.log('  - Switch PDA:', parsedData.pda);
       
+
+      
       // New format: reconstruct from CID and PDA with separate arrays (matching encryption format)
       accessControlConditions = [
         {
           contractAddress: `ipfs://${parsedData.cid}`,
           standardContractType: "LitAction",
-          chain: "ethereum",
+          chain: "solana",
           method: "checkExpiry", 
           parameters: [parsedData.pda],
           returnValueTest: {
@@ -805,9 +807,6 @@ Expiration Time: ${expirationTime}`
       dataToEncryptHash,
       authSig,
       chain: 'solana',
-      jsParams: {
-        // No jsParams needed - Lit Action gets everything from accessControlConditions
-      }
     };
     
     console.log('📋 Decryption parameters prepared:');
@@ -817,7 +816,6 @@ Expiration Time: ${expirationTime}`
     console.log('  - dataToEncryptHash length:', dataToEncryptHash.length);
     console.log('  - authSig present:', !!authSig);
     console.log('  - chain:', 'solana');
-    console.log('  - jsParams:', JSON.stringify(decryptParams.jsParams));
 
     console.log('🔄 Decrypting with fresh auth signature and IPFS Lit Action access control...');
     console.log('📍 Lit Action will dynamically check: current_time >= (last_ping + ping_interval)');
@@ -839,7 +837,7 @@ Expiration Time: ${expirationTime}`
     try {
       // Use standard decryptToString - Lit Protocol will execute the access control Lit Action
       console.log('🚀 CALLING decryptToString() - Lit Protocol will now:');
-      console.log('  1️⃣ Execute Lit Action at ipfs://bafkreicakek3fljdgynqvjo6z6us3yfbj7sd32tvsv552zueqsdsxzo3jq');
+      console.log('  1️⃣ Execute Lit Action at ipfs://' + DEAD_MANS_SWITCH_IPFS_CID);
       console.log('  2️⃣ Call Solana RPC getBalance');
       console.log('  3️⃣ Evaluate both conditions');
       console.log('  4️⃣ Return decrypted message if both pass');
@@ -889,6 +887,8 @@ Expiration Time: ${expirationTime}`
         
         // Analyze the specific failure type
         const errorMsg = error.message.toLowerCase();
+        
+
         
         if (errorMsg.includes('ed25519') || errorMsg.includes('authsig') || errorMsg.includes('auth_sig') || errorMsg.includes('signature')) {
           console.log('');
