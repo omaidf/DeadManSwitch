@@ -12,7 +12,7 @@
     "test:fixes": "node test-fixes.js"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.0",
+    "@coral-xyz/anchor": "^0.28.0",
     "@lit-protocol/auth-helpers": "^7.2.1",
     "@lit-protocol/constants": "^7.2.1",
     "@lit-protocol/contracts-sdk": "^7.2.1",

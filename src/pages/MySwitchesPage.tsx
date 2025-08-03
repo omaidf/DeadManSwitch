@@ -2,7 +2,6 @@ import { FC, useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
-import { useLitProtocol } from '../hooks/useLitProtocol'
 import { useProgram } from '../hooks/useProgram'
 import type { DeadManSwitch } from '../types'
 import { safeBigIntToNumber, safeDateFromTimestamp, safeTimeCalculation } from '../types'
@@ -13,9 +12,7 @@ interface SwitchCardProps {
     account: DeadManSwitch
   }
   onPing: (switchPDA: PublicKey) => Promise<void>
-  onDecrypt: (switchPDA: PublicKey) => Promise<void>
   isPinging: boolean
-  isDecrypting: boolean
 }
 
 /**
@@ -34,7 +31,7 @@ interface SwitchCardProps {
  * @param props.isPinging - Boolean indicating if ping operation is in progress
  * @returns JSX element with switch card UI
  */
-const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onDecrypt, isPinging, isDecrypting }) => {
+const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, isPinging }) => {
   const { account, publicKey } = switch_
   
   // Use safe time calculation utility
@@ -137,37 +134,15 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onDecrypt, isPinging
         </div>
       </div>
 
-      <div className="space-y-3">
-        {!isExpired && (
-          <button
-            onClick={() => onPing(publicKey)}
-            disabled={isPinging}
-            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
-          >
-            {isPinging ? 'Pinging...' : 'Ping Switch'}
-          </button>
-        )}
-
-        {account.expired && account.dataLength > 0 && (
-          <button
-            onClick={() => onDecrypt(publicKey)}
-            disabled={isDecrypting}
-            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
-          >
-            {isDecrypting ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                <span>Decrypting...</span>
-              </>
-            ) : (
-              <>
-                <span>🔓</span>
-                <span>Decrypt Expired Message</span>
-              </>
-            )}
-          </button>
-        )}
-      </div>
+      {!isExpired && (
+        <button
+          onClick={() => onPing(publicKey)}
+          disabled={isPinging}
+          className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
+        >
+          {isPinging ? 'Pinging...' : 'Ping Switch'}
+        </button>
+      )}
     </div>
   )
 }
@@ -195,14 +170,11 @@ export const MySwitchesPage: FC = () => {
   const { connected } = useWallet()
 
   const { getUserSwitches, pingSwitch } = useProgram()
-  const { decryptMessage } = useLitProtocol()
   const [switches, setSwitches] = useState<Array<{ publicKey: PublicKey, account: DeadManSwitch }>>([])
   const [isLoading, setIsLoading] = useState(false) // Will be set to true when auto-loading starts
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pingingSwitch, setPingingSwitch] = useState<string | null>(null)
-
-  const [decryptingSwitch, setDecryptingSwitch] = useState<string | null>(null)
     // Track component mount status to avoid updating state after unmount
   const isMountedRef = useRef(false)
 
@@ -281,36 +253,7 @@ export const MySwitchesPage: FC = () => {
   }, [connected]) // Program functions are used directly, no need in deps
 
 
-  const handleDecrypt = async (switchPDA: PublicKey) => {
-    setDecryptingSwitch(switchPDA.toString());
-    setError(null);
 
-    try {
-      const switchAccount = switches.find(
-        (s) => s.publicKey.toString() === switchPDA.toString()
-      );
-      if (!switchAccount) {
-        throw new Error('Switch data not found locally');
-      }
-
-      const encryptedData = new Uint8Array(switchAccount.account.encryptedData);
-      const decryptedMessage = await decryptMessage(encryptedData);
-
-      // We don't have a place to show the decrypted message on this page,
-      // so we'll just log it. The user can see it on the details page.
-      console.log('Decrypted message:', decryptedMessage);
-      alert(`Decrypted Message: ${decryptedMessage}`);
-    } catch (err) {
-      console.error('Failed to decrypt switch:', err);
-      if (isMountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to decrypt switch');
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setDecryptingSwitch(null);
-      }
-    }
-  };
 
   /**
    * Handles pinging a specific switch to reset its expiration timer.
@@ -415,55 +358,6 @@ export const MySwitchesPage: FC = () => {
           
           
           <div>
-            {/* Stats */}
-            <div className="bg-gray-800 rounded-lg p-6 mb-6">
-              <h3 className="text-lg font-semibold text-white mb-3">Quick Stats</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                <div>
-                  <p className="text-2xl font-bold text-purple-400">{switches.length}</p>
-                  <p className="text-sm text-gray-400">Total Switches</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-green-400">
-                    {switches.filter(s => {
-                      const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
-                      return !calc.isExpired
-                    }).length}
-                  </p>
-                  <p className="text-sm text-gray-400">Active</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-yellow-400">
-                    {switches.filter(s => {
-                      const now = Math.floor(Date.now() / 1000)
-                      const lastPing = typeof s.account.lastPing === 'bigint' ? Number(s.account.lastPing) : s.account.lastPing
-                      const pingInterval = typeof s.account.pingInterval === 'bigint' ? Number(s.account.pingInterval) : s.account.pingInterval
-                      if (lastPing <= Number.MAX_SAFE_INTEGER - pingInterval) {
-                        const timeRemaining = (lastPing + pingInterval) - now
-                        return timeRemaining <= 3600 && timeRemaining > 0
-                      }
-                      return false
-                    }).length}
-                  </p>
-                  <p className="text-sm text-gray-400">Expiring Soon</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-red-400">
-                    {switches.filter(s => {
-                      const now = Math.floor(Date.now() / 1000)
-                      const lastPing = typeof s.account.lastPing === 'bigint' ? Number(s.account.lastPing) : s.account.lastPing
-                      const pingInterval = typeof s.account.pingInterval === 'bigint' ? Number(s.account.pingInterval) : s.account.pingInterval
-                      if (lastPing <= Number.MAX_SAFE_INTEGER - pingInterval) {
-                        return (lastPing + pingInterval) < now
-                      }
-                      return true
-                    }).length}
-                  </p>
-                  <p className="text-sm text-gray-400">Expired</p>
-                </div>
-              </div>
-            </div>
-
             <h3 className="text-lg font-semibold text-white mb-3">Your Switches ({switches.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
               {switches.map((switch_) => (
@@ -471,9 +365,7 @@ export const MySwitchesPage: FC = () => {
                   key={switch_.publicKey.toString()}
                   switch_={switch_}
                   onPing={handlePing}
-                  onDecrypt={handleDecrypt}
                   isPinging={pingingSwitch === switch_.publicKey.toString()}
-                  isDecrypting={decryptingSwitch === switch_.publicKey.toString()}
                 />
               ))}
             </div>

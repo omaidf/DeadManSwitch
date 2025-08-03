@@ -2,7 +2,6 @@ import { FC, useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { PublicKey } from '@solana/web3.js'
 import { useProgram } from '../hooks/useProgram'
-import { useLitProtocol } from '../hooks/useLitProtocol'
 import type { DeadManSwitch } from '../types'
 import { safeBigIntToNumber, safeDateFromTimestamp, safeTimeCalculation } from '../types'
 
@@ -21,11 +20,9 @@ interface SwitchCardProps {
     publicKey: PublicKey
     account: DeadManSwitch
   }
-  onDecrypt: (switchPDA: string) => Promise<string | null>
-  isDecrypting: boolean
 }
 
-const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) => {
+const SwitchCard: FC<SwitchCardProps> = ({ switch_ }) => {
   const { publicKey, account } = switch_
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -58,19 +55,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
     return 'text-green-400 bg-green-900/20 border-green-500/30'
   }
 
-  // Decryption state (local per-card)
-  const [decrypted, setDecrypted] = useState<string | null>(null)
-  const [decryptError, setDecryptError] = useState<string | null>(null)
 
-  const handleDecrypt = async () => {
-    setDecryptError(null)
-    try {
-      const msg = await onDecrypt(publicKey.toString())
-      setDecrypted(msg)
-    } catch (err) {
-      setDecryptError(err instanceof Error ? err.message : 'Decryption failed')
-    }
-  }
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-600">
@@ -130,34 +115,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
         </div>
       </div>
 
-      {/* Decrypt section (only for switches marked as expired with data) */}
-      {account.expired && account.dataLength > 0 && (
-        <div className="mt-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
-          <div className="flex justify-between items-center mb-3">
-            <h4 className="text-white font-medium">🔓 Unlock Secret Message</h4>
-            <button
-              onClick={handleDecrypt}
-              disabled={isDecrypting}
-              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              {isDecrypting ? 'Decrypting…' : 'Decrypt Expired Message'}
-            </button>
-          </div>
 
-          {decrypted && (
-            <div className="bg-green-900/20 border border-green-500/30 rounded p-3 mt-3">
-              <p className="text-green-300 text-sm font-semibold mb-1">🔓 Decrypted Message:</p>
-              <p className="text-white break-words">{decrypted}</p>
-            </div>
-          )}
-
-          {decryptError && (
-            <div className="bg-red-900/20 border border-red-500/30 rounded p-3 mt-3">
-              <p className="text-red-300 text-sm">❌ {decryptError}</p>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -172,13 +130,11 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
 */
 export const ViewLocksPage: FC = () => {
   const { getAllSwitches } = useProgram()
-  const { decryptMessage } = useLitProtocol()
 
   const [switches, setSwitches] = useState<Array<{ publicKey: PublicKey; account: DeadManSwitch }>>([])
   const [isLoading, setIsLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [decryptingSwitch, setDecryptingSwitch] = useState<string | null>(null)
 
   const loadSwitches = useCallback(async () => {
     setIsLoading(true)
@@ -202,37 +158,9 @@ export const ViewLocksPage: FC = () => {
     }
   }, [hasLoadedOnce, isLoading, loadSwitches])
 
-  // Decrypt handler shared by cards
-  const handleDecrypt = async (switchPDA: string): Promise<string | null> => {
-    setDecryptingSwitch(switchPDA)
-    try {
-      const switchAccount = switches.find(
-        (s) => s.publicKey.toString() === switchPDA
-      );
-      if (!switchAccount) {
-        throw new Error('Switch data not found locally');
-      }
-      const encryptedData = new Uint8Array(switchAccount.account.encryptedData);
-      return await decryptMessage(
-        encryptedData,
-        undefined,
-        undefined,
-        switchAccount.account.owner.toString()
-      );
-    } finally {
-      setDecryptingSwitch(null)
-    }
-  }
 
-  // Quick stats (derived)
-  const expiredCount = switches.filter(s => {
-    const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
-    return calc.isExpired
-  }).length
-  const activeCount = switches.filter(s => {
-    const calc = safeTimeCalculation(s.account.lastPing, s.account.pingInterval)
-    return !calc.isExpired
-  }).length
+
+
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -258,30 +186,12 @@ export const ViewLocksPage: FC = () => {
       {/* Content */}
       {switches.length > 0 ? (
         <>
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 text-center">
-            <div className="glassmorphism p-4">
-              <p className="text-2xl font-bold text-purple-400">{switches.length}</p>
-              <p className="text-sm text-gray-300">Latest Switches</p>
-            </div>
-            <div className="glassmorphism p-4">
-              <p className="text-2xl font-bold text-green-400">{activeCount}</p>
-              <p className="text-sm text-gray-300">Active</p>
-            </div>
-            <div className="glassmorphism p-4">
-              <p className="text-2xl font-bold text-red-400">{expiredCount}</p>
-              <p className="text-sm text-gray-300">Expired</p>
-            </div>
-          </div>
-
           {/* Switch grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {switches.map(s => (
               <SwitchCard
                 key={s.publicKey.toString()}
                 switch_={s}
-                onDecrypt={handleDecrypt}
-                isDecrypting={decryptingSwitch === s.publicKey.toString()}
               />
             ))}
           </div>

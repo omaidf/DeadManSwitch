@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useLitProtocol } from '../hooks/useLitProtocol'
 
 interface SwitchCardProps {
@@ -35,7 +35,8 @@ export function SwitchCard({
   const [loading, setLoading] = useState(false)
   const [decryptedMessage, setDecryptedMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [canMarkExpired, setCanMarkExpired] = useState(false)
+
+
 
   // Fetch switch data on mount and periodically
   useEffect(() => {
@@ -44,9 +45,7 @@ export function SwitchCard({
         const data = await fetchSwitchDataByPDA(switchId) // switchId is now the PDA
         setSwitchData(data)
 
-        // For checking if we can mark as expired, we still need to construct this
-        // Since checkShouldMarkExpired expects numeric switchId, we'll use the PDA directly
-        setCanMarkExpired(data.shouldBeExpired && !data.expired)
+        // Check if the switch should be expired for UI purposes
       } catch (err) {
         console.error('Failed to fetch switch data:', err)
         setError('Failed to load switch data')
@@ -75,7 +74,6 @@ export function SwitchCard({
       // Refresh switch data to show new status
       const updatedData = await fetchSwitchDataByPDA(switchId)
       setSwitchData(updatedData)
-      setCanMarkExpired(false) // Should be false now since it's expired
     } catch (err) {
       console.error('Failed to mark expired and decrypt:', err)
       setError(err instanceof Error ? err.message : 'Failed to decrypt message')
