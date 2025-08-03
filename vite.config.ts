@@ -6,17 +6,29 @@ export default defineConfig({
   plugins: [react()],
   define: {
     global: 'globalThis',
-    'process.env': 'import.meta.env'
+    'process.env.NODE_DEBUG': '""',
+    'process.env.NODE_ENV': '"development"',
+    'process.env.BROWSER': '"true"',
+    'process.browser': 'true',
+    'process.version': '""',
+    'process.versions': '{}',
+    'process.platform': '"browser"',
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      buffer: 'buffer',
+      crypto: 'crypto-browserify',
+      stream: 'stream-browserify',
+      process: 'process',
     },
   },
   optimizeDeps: {
     include: [
       'buffer',
-      'process/browser',
+      'process',
+      'crypto-browserify',
+      'stream-browserify',
     ],
     exclude: [
       'fs'

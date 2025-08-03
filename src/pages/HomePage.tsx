@@ -179,6 +179,33 @@ export const HomePage: FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Whitepaper Section */}
+        <div className="mt-12 text-center">
+          <div className="glassmorphism p-8 inline-block">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center mr-4">
+                <span className="text-xl">📄</span>
+              </div>
+              <h3 className="text-xl font-semibold text-white">Technical Documentation</h3>
+            </div>
+            <p className="text-gray-300 mb-6">
+              Dive deep into the technical architecture, security model, and implementation details 
+              of our Dead Man's Switch protocol.
+            </p>
+            <a
+              href="/whitepaper.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-6 py-3 rounded-lg font-semibold text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 inline-flex items-center space-x-2"
+            >
+              <span>📖 Read Whitepaper</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* Quick Actions for Connected Users */}
