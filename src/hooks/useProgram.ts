@@ -47,10 +47,11 @@ export function useProgram() {
       
       console.log('🔧 Provider ready:', !!provider)
       console.log('🔧 IDL loaded:', !!IDL)
-      console.log('🔧 IDL address:', (IDL as any).address || (IDL as any).metadata?.address)
       
-      // For Anchor v0.26.0, pass the address explicitly  
+      // For Anchor v0.26.0+, the address is passed explicitly to the Program constructor
       const anchorProgramId = new PublicKey(config.PROGRAM_ID)
+      console.log('🔧 Using Program ID from config:', anchorProgramId.toString())
+      
       const program = new Program(IDL, anchorProgramId, provider)
       console.log('✅ Program initialized successfully with address:', program.programId.toString())
       return program
@@ -207,6 +208,73 @@ export function useProgram() {
         .rpc()
 
       console.log('✅ Switch created successfully! Transaction:', tx)
+      
+      // 🎉 TOAST NOTIFICATION FOR USER
+      // Create a visible toast notification
+      const createToast = () => {
+        // Simple toast using DOM manipulation since we don't have a toast library
+        const toastDiv = document.createElement('div');
+        toastDiv.innerHTML = `
+          <div style="
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            max-width: 400px;
+            border: 1px solid rgba(255,255,255,0.2);
+            backdrop-filter: blur(10px);
+            animation: slideInFromRight 0.3s ease-out;
+          ">
+            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 20px; margin-right: 8px;">✅</span>
+              <strong>Dead Man's Switch Created!</strong>
+            </div>
+            <div style="font-size: 12px; opacity: 0.9; margin-bottom: 12px;">
+              Your switch was successfully deployed to Solana
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <a href="https://solscan.io/tx/${tx}?cluster=devnet" target="_blank" 
+                 style="background: rgba(255,255,255,0.2); color: white; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.3);">
+                🔗 View Transaction
+              </a>
+              <button onclick="this.parentElement.parentElement.parentElement.remove()" 
+                      style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;">
+                ✕ Close
+              </button>
+            </div>
+          </div>
+        `;
+        
+        // Add slide-in animation
+        const style = document.createElement('style');
+        style.textContent = `
+          @keyframes slideInFromRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+          }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(toastDiv);
+        
+        // Auto-remove after 8 seconds
+        setTimeout(() => {
+          if (toastDiv.parentNode) {
+            toastDiv.style.animation = 'slideInFromRight 0.3s ease-out reverse';
+            setTimeout(() => toastDiv.remove(), 300);
+          }
+        }, 8000);
+      };
+      
+      createToast();
+      
       return { signature: tx, switchPDA }
     } catch (error) {
       console.error('❌ Failed to create switch:', error)
@@ -219,15 +287,7 @@ export function useProgram() {
         if ('code' in error) {
           console.error('  - Error code:', (error as any).code)
         }
-        if ('logs' in error) {
-          console.error('  - Program logs:', (error as any).logs)
-          // Log each program log individually for better readability
-          if (Array.isArray((error as any).logs)) {
-            (error as any).logs.forEach((log: string, index: number) => {
-              console.error(`    [${index}]: ${log}`)
-            })
-          }
-        }
+
         
         // Debug the exact parameters that caused the error
         console.error('🔍 Parameters that caused the error:')
@@ -376,27 +436,13 @@ export function useProgram() {
     }
 
     try {
-      // Use the program's getSwitchInfo method for rich data
-      const switchInfo = await program.methods
-        .getSwitchInfo()
-        .accounts({
-          switch: switchPDA,
-        })
-        .view()
-      
-      return switchInfo
+      // Bypassing the problematic .view() call and using .fetch() directly.
+      // This is more reliable across different RPC providers.
+      const accountInfo = await (program.account as any).deadManSwitch.fetch(switchPDA)
+      return accountInfo
     } catch (error) {
       console.error('Failed to get switch info:', error)
-      
-      // Fallback to direct account fetch if getSwitchInfo fails
-      try {
-        console.log('Falling back to direct account fetch...')
-        const accountInfo = await (program.account as any).deadManSwitch.fetch(switchPDA)
-        return accountInfo
-      } catch (fallbackError) {
-        console.error('Fallback account fetch also failed:', fallbackError)
-        throw error
-      }
+      throw error
     }
   }
 
@@ -640,37 +686,7 @@ export function useProgram() {
   // deactivateSwitch removed - no longer available in the deployed contract
   // Switches now automatically become available for decryption when they expire
 
-  /**
-   * Closes a switch account and recovers the stored SOL rent to the owner.
-   * 
-   * Permanently deletes the switch account from the blockchain and transfers
-   * all stored lamports back to the owner. Can only be called on switches that
-   * are both deactivated AND expired.
-   * 
-   * @param switchPDA - The Program Derived Address of the switch to close
-   * @returns Promise resolving to the transaction signature
-   * @throws Error if switch is active, not expired, or transaction fails
-   */
-  const closeSwitch = async (switchPDA: PublicKey) => {
-    if (!program || !wallet.publicKey) {
-      throw new Error('Program or wallet not available')
-    }
 
-    try {
-      const tx = await program.methods
-        .closeSwitch()
-        .accounts({
-          switch: switchPDA,
-          owner: wallet.publicKey,
-        })
-        .rpc()
-
-      return tx
-    } catch (error) {
-      console.error('Failed to close switch:', error)
-      throw error
-    }
-  }
 
   /**
    * Extracts the actual encrypted data from a switch account's fixed-size storage array.
@@ -703,7 +719,6 @@ export function useProgram() {
     getUserSwitches,
     getAllSwitches,
     checkUserHasSwitches,
-    closeSwitch,
     getActualEncryptedData,
     connected: !!program,
   }

@@ -2,6 +2,7 @@ import { FC, useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { PublicKey } from '@solana/web3.js'
+import { useLitProtocol } from '../hooks/useLitProtocol'
 import { useProgram } from '../hooks/useProgram'
 import type { DeadManSwitch } from '../types'
 import { safeBigIntToNumber, safeDateFromTimestamp, safeTimeCalculation } from '../types'
@@ -12,9 +13,9 @@ interface SwitchCardProps {
     account: DeadManSwitch
   }
   onPing: (switchPDA: PublicKey) => Promise<void>
-  onClose: (switchPDA: PublicKey) => Promise<void>
+  onDecrypt: (switchPDA: PublicKey) => Promise<void>
   isPinging: boolean
-  isClosing: boolean
+  isDecrypting: boolean
 }
 
 /**
@@ -33,7 +34,7 @@ interface SwitchCardProps {
  * @param props.isPinging - Boolean indicating if ping operation is in progress
  * @returns JSX element with switch card UI
  */
-const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onClose, isPinging, isClosing }) => {
+const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onDecrypt, isPinging, isDecrypting }) => {
   const { account, publicKey } = switch_
   
   // Use safe time calculation utility
@@ -147,22 +148,24 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onClose, isPinging, 
           </button>
         )}
 
-        {isExpired && (
-          <div className="bg-red-900/20 border border-red-500/30 rounded p-3">
-            <p className="text-red-300 text-sm mb-3">
-              This switch has expired. Your message may now be visible to the public.
-            </p>
-            <button
-              onClick={() => onClose(publicKey)}
-              disabled={isClosing}
-              className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
-            >
-              {isClosing ? 'Closing...' : 'Close & Recover SOL'}
-            </button>
-            <p className="text-red-200 text-xs mt-2">
-              ⚠️ This will permanently delete the switch and recover your storage rent.
-            </p>
-          </div>
+        {isExpired && account.dataLength > 0 && (
+          <button
+            onClick={() => onDecrypt(publicKey)}
+            disabled={isDecrypting}
+            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+          >
+            {isDecrypting ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                <span>Decrypting...</span>
+              </>
+            ) : (
+              <>
+                <span>🔓</span>
+                <span>Decrypt Message</span>
+              </>
+            )}
+          </button>
         )}
       </div>
     </div>
@@ -190,13 +193,16 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onClose, isPinging, 
  */
 export const MySwitchesPage: FC = () => {
   const { connected } = useWallet()
-  const { getUserSwitches, pingSwitch, closeSwitch } = useProgram()
+
+  const { getUserSwitches, pingSwitch } = useProgram()
+  const { decryptMessage } = useLitProtocol()
   const [switches, setSwitches] = useState<Array<{ publicKey: PublicKey, account: DeadManSwitch }>>([])
   const [isLoading, setIsLoading] = useState(false) // Will be set to true when auto-loading starts
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pingingSwitch, setPingingSwitch] = useState<string | null>(null)
-  const [closingSwitch, setClosingSwitch] = useState<string | null>(null)
+
+  const [decryptingSwitch, setDecryptingSwitch] = useState<string | null>(null)
     // Track component mount status to avoid updating state after unmount
   const isMountedRef = useRef(false)
 
@@ -274,6 +280,38 @@ export const MySwitchesPage: FC = () => {
       }
   }, [connected]) // Program functions are used directly, no need in deps
 
+
+  const handleDecrypt = async (switchPDA: PublicKey) => {
+    setDecryptingSwitch(switchPDA.toString());
+    setError(null);
+
+    try {
+      const switchAccount = switches.find(
+        (s) => s.publicKey.toString() === switchPDA.toString()
+      );
+      if (!switchAccount) {
+        throw new Error('Switch data not found locally');
+      }
+
+      const encryptedData = new Uint8Array(switchAccount.account.encryptedData);
+      const decryptedMessage = await decryptMessage(encryptedData);
+
+      // We don't have a place to show the decrypted message on this page,
+      // so we'll just log it. The user can see it on the details page.
+      console.log('Decrypted message:', decryptedMessage);
+      alert(`Decrypted Message: ${decryptedMessage}`);
+    } catch (err) {
+      console.error('Failed to decrypt switch:', err);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to decrypt switch');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setDecryptingSwitch(null);
+      }
+    }
+  };
+
   /**
    * Handles pinging a specific switch to reset its expiration timer.
    * 
@@ -305,43 +343,7 @@ export const MySwitchesPage: FC = () => {
     }
   }
 
-  /**
-   * Handles closing an expired switch and recovering the storage rent.
-   * 
-   * Executes the close transaction which permanently deletes the switch
-   * account and transfers the stored lamports back to the owner.
-   * Only works on expired switches.
-   * 
-   * @param switchPDA - The Program Derived Address of the switch to close
-   */
-  const handleClose = async (switchPDA: PublicKey) => {
-    setClosingSwitch(switchPDA.toString())
-    setError(null) // Clear any previous errors
-    
-    try {
-      const signature = await closeSwitch(switchPDA)
-      console.log('✅ Switch closed successfully, transaction:', signature)
-      
-      // Remove the closed switch from local state immediately
-      if (isMountedRef.current) {
-        setSwitches(prevSwitches => 
-          prevSwitches.filter(s => s.publicKey.toString() !== switchPDA.toString())
-        )
-      }
-      
-      // Optional: Show success message
-      console.log('💰 Storage rent recovered from closed switch')
-    } catch (err) {
-      console.error('Failed to close switch:', err)
-      if (isMountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to close switch')
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setClosingSwitch(null)
-      }
-    }
-  }
+
 
   // Separate effect for connection state changes
   useEffect(() => {
@@ -469,9 +471,9 @@ export const MySwitchesPage: FC = () => {
                   key={switch_.publicKey.toString()}
                   switch_={switch_}
                   onPing={handlePing}
-                  onClose={handleClose}
+                  onDecrypt={handleDecrypt}
                   isPinging={pingingSwitch === switch_.publicKey.toString()}
-                  isClosing={closingSwitch === switch_.publicKey.toString()}
+                  isDecrypting={decryptingSwitch === switch_.publicKey.toString()}
                 />
               ))}
             </div>

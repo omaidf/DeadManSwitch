@@ -206,7 +206,19 @@ export const ViewLocksPage: FC = () => {
   const handleDecrypt = async (switchPDA: string): Promise<string | null> => {
     setDecryptingSwitch(switchPDA)
     try {
-      return await decryptMessage(switchPDA)
+      const switchAccount = switches.find(
+        (s) => s.publicKey.toString() === switchPDA
+      );
+      if (!switchAccount) {
+        throw new Error('Switch data not found locally');
+      }
+      const encryptedData = new Uint8Array(switchAccount.account.encryptedData);
+      return await decryptMessage(
+        encryptedData,
+        undefined,
+        undefined,
+        switchAccount.account.owner.toString()
+      );
     } finally {
       setDecryptingSwitch(null)
     }

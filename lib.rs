@@ -116,27 +116,7 @@ mod dead_mans_switch {
         })
     }
 
-    /// Closes an expired switch account and recovers rent
-    pub fn close_switch(ctx: Context<CloseSwitch>) -> Result<()> {
-        let switch = &ctx.accounts.switch;
-        let current_time = Clock::get()?.unix_timestamp;
 
-        // Security checks
-        require!(is_expired(switch, current_time), ErrorCode::NotExpired);
-        require!(
-            switch.owner == *ctx.accounts.owner.key,
-            ErrorCode::Unauthorized
-        );
-
-        emit!(SwitchClosed {
-            switch: switch.key(),
-            owner: *ctx.accounts.owner.key,
-            recovered_lamports: ctx.accounts.switch.to_account_info().lamports(),
-            timestamp: current_time,
-        });
-
-        Ok(())
-    }
 }
 
 /// Checks if a switch is expired
@@ -217,18 +197,7 @@ pub struct GetSwitchInfo<'info> {
     pub switch: Account<'info, DeadManSwitch>,
 }
 
-#[derive(Accounts)]
-pub struct CloseSwitch<'info> {
-    #[account(
-        mut,
-        has_one = owner,
-        close = owner,
-    )]
-    pub switch: Account<'info, DeadManSwitch>,
 
-    #[account(mut)]
-    pub owner: Signer<'info>,
-}
 
 // ===== Events ===== //
 
@@ -250,13 +219,7 @@ pub struct SwitchPinged {
     pub timestamp: i64,          // Ping timestamp
 }
 
-#[event]
-pub struct SwitchClosed {
-    pub switch: Pubkey,          // Closed switch address
-    pub owner: Pubkey,           // Owner who received funds
-    pub recovered_lamports: u64, // Amount of SOL recovered
-    pub timestamp: i64,          // Closure timestamp
-}
+
 
 // ===== Error Codes ===== //
 

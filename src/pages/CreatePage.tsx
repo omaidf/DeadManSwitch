@@ -6,8 +6,8 @@ import { useLitProtocol } from '../hooks/useLitProtocol'
 // Constants for message validation
 const MIN_PING_INTERVAL = 60 // 1 minute (from lib.rs)
 const MAX_PING_INTERVAL = 365 * 24 * 60 * 60 // 1 year (from lib.rs)
-const MAX_DATA_SIZE = 512 // bytes (from lib.rs)
-const MAX_MESSAGE_SIZE = 200 // Reduced to ensure encrypted data fits within 512 bytes
+// const MAX_DATA_SIZE = 512 // bytes (from lib.rs) - Not used anymore, character limit enforced instead
+const MAX_MESSAGE_SIZE = 140 // Character limit to ensure encrypted data fits within Solana's 512-byte storage limit
 
 /**
  * Utility function to calculate the byte length of a text string.
@@ -105,8 +105,8 @@ export const CreatePage = () => {
       return
     }
     
-    if (messageBytes > MAX_MESSAGE_SIZE) {
-      setError(`Message too large. After encryption, must fit within ${MAX_DATA_SIZE} bytes. Maximum input: ${MAX_MESSAGE_SIZE} bytes, current: ${messageBytes} bytes`)
+    if (message.length > MAX_MESSAGE_SIZE) {
+      setError(`Secret message too long: ${message.length} characters (max: ${MAX_MESSAGE_SIZE}). This ensures encrypted data fits in Solana's 512-byte limit.`)
       setIsCreating(false)
       return
     }
@@ -328,22 +328,21 @@ export const CreatePage = () => {
             value={message}
             onChange={(e) => {
               const newValue = e.target.value
-              const byteLength = getMessageByteLength(newValue)
               
               // Allow typing but warn when approaching/exceeding limit
               setMessage(newValue)
               
               // Clear any existing errors when user starts typing within limits
-              if (byteLength <= MAX_MESSAGE_SIZE && error?.includes('Message too large')) {
+              if (newValue.length <= MAX_MESSAGE_SIZE && error?.includes('Secret message too long')) {
                 setError(null)
               }
             }}
             placeholder="Enter your secret message here..."
             rows={6}
             className={`w-full px-4 py-3 bg-gray-800/50 border rounded-lg text-white placeholder-gray-400 focus:ring-1 transition-colors ${
-              getMessageByteLength(message) > MAX_MESSAGE_SIZE 
+              message.length > MAX_MESSAGE_SIZE 
                 ? 'border-red-500/70 focus:border-red-500 focus:ring-red-500/50' 
-                : getMessageByteLength(message) > MAX_MESSAGE_SIZE * 0.8
+                : message.length > MAX_MESSAGE_SIZE * 0.8
                 ? 'border-yellow-500/70 focus:border-yellow-500 focus:ring-yellow-500/50'
                 : 'border-gray-600/50 focus:border-purple-500 focus:ring-purple-500'
             }`}
@@ -357,16 +356,16 @@ export const CreatePage = () => {
             </p>
             <div className="text-xs flex items-center space-x-2">
               <span className={`${
-                getMessageByteLength(message) > MAX_MESSAGE_SIZE ? 'text-red-400' :
-                getMessageByteLength(message) > MAX_MESSAGE_SIZE * 0.8 ? 'text-yellow-400' :
+                message.length > MAX_MESSAGE_SIZE ? 'text-red-400' :
+                message.length > MAX_MESSAGE_SIZE * 0.8 ? 'text-yellow-400' :
                 'text-white'
               }`}>
-                {getMessageByteLength(message)}/{MAX_MESSAGE_SIZE} bytes
+                {message.length}/{MAX_MESSAGE_SIZE} characters ({getMessageByteLength(message)} bytes)
               </span>
-              {getMessageByteLength(message) > MAX_MESSAGE_SIZE && (
+              {message.length > MAX_MESSAGE_SIZE && (
                 <span className="text-red-400 font-medium">⚠️ Too large!</span>
               )}
-              {getMessageByteLength(message) > MAX_MESSAGE_SIZE * 0.8 && getMessageByteLength(message) <= MAX_MESSAGE_SIZE && (
+              {message.length > MAX_MESSAGE_SIZE * 0.8 && message.length <= MAX_MESSAGE_SIZE && (
                 <span className="text-yellow-400">⚠️ Near limit</span>
               )}
             </div>
@@ -377,12 +376,12 @@ export const CreatePage = () => {
             <div className="w-full bg-gray-700 rounded-full h-1.5">
               <div 
                 className={`h-1.5 rounded-full transition-all duration-300 ${
-                  getMessageByteLength(message) > MAX_MESSAGE_SIZE ? 'bg-red-500' :
-                  getMessageByteLength(message) > MAX_MESSAGE_SIZE * 0.8 ? 'bg-yellow-500' :
+                  message.length > MAX_MESSAGE_SIZE ? 'bg-red-500' :
+                  message.length > MAX_MESSAGE_SIZE * 0.8 ? 'bg-yellow-500' :
                   'bg-green-500'
                 }`}
                 style={{ 
-                  width: `${Math.min((getMessageByteLength(message) / MAX_MESSAGE_SIZE) * 100, 100)}%` 
+                  width: `${Math.min((message.length / MAX_MESSAGE_SIZE) * 100, 100)}%` 
                 }}
               />
             </div>
@@ -454,7 +453,7 @@ export const CreatePage = () => {
 
         <button
           type="submit"
-          disabled={isCreating || !message.trim() || getMessageByteLength(message) > MAX_MESSAGE_SIZE}
+          disabled={isCreating || !message.trim() || message.length > MAX_MESSAGE_SIZE}
           className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 px-8 py-4 rounded-xl font-semibold text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 disabled:transform-none disabled:cursor-not-allowed"
         >
           {isCreating ? (

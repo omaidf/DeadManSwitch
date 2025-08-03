@@ -158,10 +158,15 @@ export const LockDetailsPage: FC = () => {
 
     try {
       const encryptedData = getActualEncryptedData(switchData.account)
-      const encryptedString = new TextDecoder().decode(encryptedData)
+      // const encryptedString = new TextDecoder().decode(encryptedData)
       
       console.log('🔍 Attempting to decrypt message for expired switch...')
-      const decrypted = await decryptMessage(encryptedString, switchData.publicKey.toString())
+      const decrypted = await decryptMessage(
+        encryptedData,
+        undefined, // Symmetric key is in the encryptedString JSON
+        undefined, // Switch ID is in the encryptedString JSON
+        switchData.account.owner.toString() // Pass owner for PDA derivation
+      )
       
       if (isMountedRef.current) {
         setDecryptedMessage(decrypted)
