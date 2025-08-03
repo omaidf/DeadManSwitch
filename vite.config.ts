@@ -7,12 +7,14 @@ export default defineConfig({
   define: {
     global: 'globalThis',
     'process.env.NODE_DEBUG': '""',
-    'process.env.NODE_ENV': '"development"',
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
     'process.env.BROWSER': '"true"',
     'process.browser': 'true',
     'process.version': '""',
     'process.versions': '{}',
     'process.platform': '"browser"',
+    // Make Buffer globally available
+    'global.Buffer': 'Buffer',
   },
   resolve: {
     alias: {
@@ -29,6 +31,10 @@ export default defineConfig({
       'process',
       'crypto-browserify',
       'stream-browserify',
+      '@lit-protocol/lit-node-client',
+      '@lit-protocol/encryption',
+      '@solana/web3.js',
+      'bs58'
     ],
     exclude: [
       'fs'
@@ -37,9 +43,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: ['fs', 'net', 'tls'],
+      output: {
+        globals: {
+          buffer: 'Buffer',
+        }
+      }
     },
     outDir: 'dist',
-    assetsDir: 'assets'
+    assetsDir: 'assets',
+    // Ensure polyfills are properly included
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    }
   },
   server: {
     port: 3000,

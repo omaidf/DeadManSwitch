@@ -81,8 +81,9 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="max-w-4xl mx-auto">
-          <div className="glassmorphism p-8 border border-red-500/30">
+        <div className="min-h-screen flex items-center justify-center p-4" style={{ backgroundColor: '#1a1a2e' }}>
+          <div className="max-w-4xl mx-auto">
+            <div className="glassmorphism p-8 border border-red-500/30 rounded-lg">
             <div className="text-center">
               <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
                 <span className="text-2xl">🚨</span>
@@ -132,6 +133,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 >
                   Go Home
                 </button>
+              </div>
               </div>
             </div>
           </div>
