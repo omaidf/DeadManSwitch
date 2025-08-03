@@ -89,6 +89,42 @@ export const HomePage: FC = () => {
         </div>
       </div>
 
+      {/* Contract Address Section */}
+      <div className="py-12 sm:py-16">
+        <div className="max-w-2xl mx-auto px-6">
+          <div className="glassmorphism p-8 shadow-lg border-2 border-yellow-300/50 rounded-xl">
+            <h3 className="text-2xl font-bold text-white mb-6 text-center">Contract Address</h3>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <div 
+                className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 p-4 rounded-lg cursor-pointer hover:bg-purple-500/30 transition-colors"
+                onClick={() => {
+                  navigator.clipboard.writeText('AavvJjmMsqqjH59iJGvvRgRYQsobYd35Ppq7iSaWjups')
+                    .then(() => {
+                      // Optional: Add a toast notification here
+                    })
+                    .catch(err => console.error('Failed to copy: ', err))
+                }}
+              >
+                <span className="text-white font-semibold">AavvJjmMsqqjH59iJGvvRgRYQsobYd35Ppq7iSaWjups</span>
+              </div>
+              <button 
+                className="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg transition-colors"
+                onClick={() => {
+                  navigator.clipboard.writeText('Contract deployment in progress...')
+                    .then(() => {
+                      // Optional: Add a toast notification here
+                    })
+                    .catch(err => console.error('Failed to copy: ', err))
+                }}
+              >
+                <span className="text-lg">📋</span>
+                <span className="text-white font-semibold">Copy</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Social Links Section */}
       <div className="py-12 sm:py-16 text-center">
         <h2 className="text-2xl font-bold text-white sm:text-3xl mb-4">
