@@ -25,6 +25,25 @@ export const HomePage: FC = () => {
 
   return (
     <div className="min-h-full">
+      {/* DevNet Banner */}
+      <div className="bg-green-600 hover:bg-green-700 transition-colors cursor-pointer">
+        <a 
+          href="https://medium.com/future-vision/how-to-switch-to-solana-devnet-in-phantom-wallet-c1515625d78e" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="block py-3 px-6 text-center"
+        >
+          <div className="flex items-center justify-center space-x-2">
+            <span className="text-white font-semibold">
+              🟢 DeadManSOL is LIVE on DevNet. Click here for information on enabling DevNet on your wallet
+            </span>
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </div>
+        </a>
+      </div>
+
       {/* Hero Section */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-purple-900/20 to-pink-900/20"></div>
