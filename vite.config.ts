@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { Buffer } from 'buffer'
 
 export default defineConfig({
   plugins: [react()],
@@ -13,8 +14,6 @@ export default defineConfig({
     'process.version': '""',
     'process.versions': '{}',
     'process.platform': '"browser"',
-    // Make Buffer globally available
-    'global.Buffer': 'Buffer',
   },
   resolve: {
     alias: {
@@ -43,6 +42,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: ['fs', 'net', 'tls'],
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        polyfills: resolve(__dirname, 'src/polyfills.ts'),
+      },
       output: {
         globals: {
           buffer: 'Buffer',
