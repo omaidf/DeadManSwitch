@@ -105,36 +105,68 @@ export function useLitProtocol() {
     }
   }
 
+  // Helper: Clear all cached authentication data
+  const clearCachedAuthData = () => {
+    console.log('🧹 Clearing all cached Lit Protocol authentication data...')
+    
+    // Clear Lit SDK session storage
+    try {
+      // This will clear localStorage for authSig and sessionSigs
+      if (typeof window !== 'undefined' && (window as any).LitJsSdk) {
+        (window as any).LitJsSdk.disconnectWeb3()
+      }
+    } catch (e) {
+      console.warn('Could not call LitJsSdk.disconnectWeb3():', e)
+    }
+    
+    // Clear our custom cache keys
+    localStorage.removeItem('lit-solana-authSig')
+    localStorage.removeItem('lit-authSig') // Old Ethereum-style cache
+    localStorage.removeItem('lit-sessionSigs') // Stale session signatures
+    localStorage.removeItem('lit-wallet-sig') // Any other potential cache keys
+    
+    // Clear any Lit-related keys
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('lit-') || key.startsWith('LIT_')) {
+        localStorage.removeItem(key)
+      }
+    })
+    
+    console.log('✅ All authentication cache cleared')
+  }
+
   // Helper: create Solana-specific auth signature for Lit Protocol
-  const getOrCreateAuthSig = async () => {
+  const getOrCreateAuthSig = async (forceRefresh = false) => {
     if (!wallet.publicKey || !wallet.signMessage) {
       throw new Error('Wallet not connected')
     }
 
     const cacheKey = 'lit-solana-authSig'
     
-    const cached = localStorage.getItem(cacheKey)
-    if (cached) {
-      try {
-        const parsedCache = JSON.parse(cached)
-        // Validate cache is not too old (24 hours) and belongs to current wallet
-        if (Date.now() - parsedCache.timestamp < 24 * 60 * 60 * 1000 && 
-            parsedCache.authSig.address === wallet.publicKey.toBase58()) {
-          console.log('🔄 Using cached Solana auth signature')
-          return parsedCache.authSig
+    // Force refresh if requested or check cache
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        try {
+          const parsedCache = JSON.parse(cached)
+          // Validate cache is not too old (1 hour instead of 24) and belongs to current wallet
+          if (Date.now() - parsedCache.timestamp < 1 * 60 * 60 * 1000 && 
+              parsedCache.authSig.address === wallet.publicKey.toBase58()) {
+            console.log('🔄 Using cached Solana auth signature')
+            return parsedCache.authSig
+          }
+        } catch (e) {
+          // Invalid cache format, clear it
+          localStorage.removeItem(cacheKey)
         }
-      } catch (e) {
-        // Invalid cache format, clear it
-        localStorage.removeItem(cacheKey)
       }
     }
 
-    console.log('🔑 Creating new Solana auth signature for Lit Protocol')
+    console.log(forceRefresh ? '🔄 Force refreshing Solana auth signature' : '🔑 Creating new Solana auth signature for Lit Protocol')
     
-    // Create a simple message to sign (Solana-style, not SIWE)
-    const message = `I am proving ownership of this Solana wallet for Lit Protocol encryption.
-Address: ${wallet.publicKey.toString()}
-Timestamp: ${Date.now()}`
+    // Use a static message that doesn't change - this is critical for Lit Protocol validation
+    // DO NOT include timestamps or nonces - the message must be the same for encryption and decryption
+    const message = "I am proving ownership of this Solana wallet for Lit Protocol."
 
     const messageBytes = new TextEncoder().encode(message)
     const signature = await wallet.signMessage(messageBytes)
@@ -152,7 +184,8 @@ Timestamp: ${Date.now()}`
       timestamp: Date.now()
     }))
 
-    console.log('✅ Created Solana auth signature')
+    console.log('✅ Created fresh Solana auth signature with static message')
+    console.log('📝 Message used:', message)
     return authSig
   }
 
@@ -161,9 +194,8 @@ Timestamp: ${Date.now()}`
       if (litNodeClient || isConnecting) return
 
       // Clear any stale session data on initialization
-      console.log('🧹 Clearing stale Lit Protocol session data...')
-      localStorage.removeItem('lit-authSig') // Old Ethereum-style cache
-      localStorage.removeItem('lit-sessionSigs') // Stale session signatures
+      console.log('🧹 Clearing stale Lit Protocol session data on init...')
+      clearCachedAuthData()
       
       setIsConnecting(true)
       setError(null)
@@ -274,7 +306,7 @@ Timestamp: ${Date.now()}`
 
       // No need to fetch expiration time - IPFS Lit Action handles this dynamically
 
-      // Use proper Lit Action access control with IPFS CID
+      // Use proper Lit Action access control with IPFS CID + allow ANY Solana address to decrypt
       const accessControlConditions = [
         {
           contractAddress: "ipfs://bafybeihpumgncikrjtqzpsigs2fnb7y5gujt2zcvc4spohledoapqd4x3a",
@@ -289,6 +321,21 @@ Timestamp: ${Date.now()}`
         }
       ];
 
+      const solRpcConditions = [
+        {
+          method: "getBalance",
+          params: [":userAddress"],
+          pdaParams: [],
+          pdaInterface: { offset: 0, fields: {} },
+          pdaKey: "",
+          chain: "solana",
+          returnValueTest: {
+            key: "",
+            comparator: ">=",
+            value: "0"
+          }
+        }
+      ];
       // Switch metadata is embedded in compact format
 
       // Get Solana authSig for encryption
@@ -298,6 +345,7 @@ Timestamp: ${Date.now()}`
       const encryptParams = {
         dataToEncrypt: message,
         accessControlConditions,
+        solRpcConditions,
         authSig,
         chain: 'solana',
         jsParams: {
@@ -476,7 +524,7 @@ Timestamp: ${Date.now()}`
     // Reconstruct access control conditions from minimal stored data
     let accessControlConditions;
     if (parsedData.cid && parsedData.pda) {
-      // New format: reconstruct from CID and PDA
+      // New format: reconstruct from CID and PDA with ANYONE can decrypt access control
       accessControlConditions = [
         {
           contractAddress: `ipfs://${parsedData.cid}`,
@@ -487,6 +535,20 @@ Timestamp: ${Date.now()}`
           returnValueTest: {
             comparator: "=",
             value: "true"
+          }
+        },
+        { operator: "and" },
+        {
+          method: "getBalance",
+          params: [":userAddress"],
+          pdaParams: [],
+          pdaInterface: { offset: 0, fields: {} },
+          pdaKey: "",
+          chain: "solana",
+          returnValueTest: {
+            key: "",
+            comparator: ">=",
+            value: "0" // This will always be true for any Solana address - allows ANYONE to decrypt
           }
         }
       ];
@@ -528,15 +590,18 @@ Timestamp: ${Date.now()}`
     }
 
     console.log('🔍 Decrypting with IPFS Lit Action approach');
-    console.log('📝 Using stored access control conditions with IPFS Lit Action');
+    console.log('📝 Using access control: Lit Action (expiry check) + Solana RPC (balance >= 0)');
+    console.log('🌍 ANYONE with a Solana wallet can decrypt if the switch has expired!');
     console.log('🔄 Lit Action will dynamically verify expiration for switch:', switchPDA.toString());
 
-    // Get authSig for session
-    const authSig = await getOrCreateAuthSig();
+    // 🔄 ALWAYS generate fresh auth signature for decryption to avoid stale cache issues
+    console.log('🔑 Generating fresh auth signature for decryption...');
+    const authSig = await getOrCreateAuthSig(true); // Force fresh signature
 
     // Prepare decryption parameters with IPFS Lit Action
     const decryptParams = {
       accessControlConditions,
+      solRpcConditions,
       ciphertext,
       dataToEncryptHash,
       authSig,
@@ -546,19 +611,20 @@ Timestamp: ${Date.now()}`
       }
     };
 
-    console.log('🔄 Decrypting with IPFS Lit Action access control...');
+    console.log('🔄 Decrypting with fresh auth signature and IPFS Lit Action access control...');
     console.log('📍 Lit Action will dynamically check: current_time >= (last_ping + ping_interval)');
+    console.log('🌍 Solana RPC will check: user has balance >= 0 (always true - allows ANY address)');
     console.log('⚡ No client-side expiration checks needed - all handled by Lit Action');
 
     try {
       // Use standard decryptToString - Lit Protocol will execute the access control Lit Action
       const decryptedMessage = await decryptToString(decryptParams, litNodeClient);
       
-      console.log('✅ Successfully decrypted message using Lit Action access control');
+      console.log('✅ Successfully decrypted message using fresh auth signature and Lit Action access control');
       return decryptedMessage;
 
     } catch (error) {
-      console.error('❌ Lit Action decryption failed:', error);
+      console.error('❌ Decryption failed with fresh auth signature:', error);
       
       // Provide user-friendly error messages
       let userMessage = 'Failed to decrypt message';
@@ -569,6 +635,8 @@ Timestamp: ${Date.now()}`
           userMessage = 'Network error: Unable to verify switch status. Please check your internet connection.';
         } else if (error.message.includes('expired')) {
           userMessage = 'This switch has not expired yet. Decryption is only available after expiration.';
+        } else if (error.message.includes('auth') || error.message.includes('signature')) {
+          userMessage = 'Authentication failed: Please disconnect and reconnect your wallet, then try again.';
         } else {
           userMessage = `Decryption failed: ${error.message}`;
         }
@@ -587,5 +655,6 @@ Timestamp: ${Date.now()}`
     encryptMessage,
     decryptMessage,
     fetchSwitchExpirationTime, // Export for use in other components
+    clearCachedAuthData, // Export for manual cache clearing
   }
 }
