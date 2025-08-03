@@ -31,7 +31,7 @@ export const LockDetailsPage: FC = () => {
   const { connected, publicKey } = useWallet()
   const navigate = useNavigate()
   const { getSwitchInfo, pingSwitch, getActualEncryptedData } = useProgram()
-  const { decryptMessage } = useLitProtocol()
+  const { decryptMessage, markExpiredAndDecryptByPDA } = useLitProtocol()
   
   const [switchData, setSwitchData] = useState<{
     publicKey: PublicKey
@@ -41,6 +41,7 @@ export const LockDetailsPage: FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [isPinging, setIsPinging] = useState(false)
   const [isDecrypting, setIsDecrypting] = useState(false)
+  const [isMarkingAndDecrypting, setIsMarkingAndDecrypting] = useState(false)
   const [decryptedMessage, setDecryptedMessage] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(Math.floor(Date.now() / 1000))
   
@@ -179,6 +180,51 @@ export const LockDetailsPage: FC = () => {
     } finally {
       if (isMountedRef.current) {
         setIsDecrypting(false)
+      }
+    }
+  }
+
+  /**
+   * Handles marking a switch as expired and then decrypting it in one operation.
+   * 
+   * This function combines the mark expired transaction with decryption,
+   * providing a seamless user experience for time-expired switches.
+   */
+  const handleMarkExpiredAndDecrypt = async () => {
+    if (!switchData || !connected) return
+
+    setIsMarkingAndDecrypting(true)
+    setError(null)
+
+    try {
+      console.log('🚀 Starting mark expired and decrypt operation...')
+      
+      const encryptedData = getActualEncryptedData(switchData.account)
+      const decrypted = await markExpiredAndDecryptByPDA(
+        encryptedData, 
+        switchData.publicKey, 
+        switchData.account.owner.toString()
+      )
+      
+      if (isMountedRef.current) {
+        setDecryptedMessage(decrypted)
+        console.log('✅ Switch marked as expired and message decrypted successfully')
+        
+        // Reload switch data to show updated status
+        const updatedInfo = await getSwitchInfo(switchData.publicKey)
+        setSwitchData({
+          publicKey: switchData.publicKey,
+          account: updatedInfo
+        })
+      }
+    } catch (err) {
+      console.error('Failed to mark expired and decrypt:', err)
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to mark expired and decrypt message')
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsMarkingAndDecrypting(false)
       }
     }
   }
@@ -432,12 +478,12 @@ export const LockDetailsPage: FC = () => {
               </button>
             )}
 
-            {/* Decrypt Button - only for expired switches with data */}
-            {isExpired && account.dataLength > 0 && (
+            {/* Decrypt Button - UI ENFORCEMENT: only for switches marked as expired with data */}
+            {account.expired && account.dataLength > 0 && (
               <button
                 onClick={handleDecrypt}
                 disabled={isDecrypting}
-                className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
               >
                 {isDecrypting ? (
                   <>
@@ -447,7 +493,28 @@ export const LockDetailsPage: FC = () => {
                 ) : (
                   <>
                     <span>🔓</span>
-                    <span>Decrypt Message</span>
+                    <span>Decrypt Expired Message</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Mark Expired & Decrypt Button - UI ENFORCEMENT: for time-expired but not marked switches */}
+            {isExpired && !account.expired && account.dataLength > 0 && (
+              <button
+                onClick={handleMarkExpiredAndDecrypt}
+                disabled={isMarkingAndDecrypting || isDecrypting}
+                className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 text-white px-4 py-3 rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
+              >
+                {isMarkingAndDecrypting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>⚡</span>
+                    <span>Mark Expired & Decrypt</span>
                   </>
                 )}
               </button>

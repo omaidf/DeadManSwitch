@@ -17,7 +17,7 @@ export interface DeadManSwitch {
   dataLength: number      // u16 field tracking actual data size
   createdAt: number | bigint  // Can be bigint from Anchor deserialization
   bump: number           // u8 PDA bump
-  // Note: 'active' field removed in new contract - use getSwitchInfo().expired instead
+  expired: boolean       // Boolean flag indicating if switch is marked as expired
 }
 
 // Switch info structure (matches IDL)

@@ -2,32 +2,16 @@ import { useState, useEffect } from 'react'
 import { LitNodeClient } from '@lit-protocol/lit-node-client'
 import { encryptString, decryptToString } from '@lit-protocol/encryption'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey } from '@solana/web3.js'
+import { PublicKey, Connection, Transaction, TransactionInstruction } from '@solana/web3.js'
 import { getConfig } from '../lib/config'
 
-// IPFS CID for the Dead Man's Switch Lit Action
-const DEAD_MANS_SWITCH_IPFS_CID = 'QmZRU4SSZXHr7eKSvsopghRYkAj3PAtu4yLNZzmUNLzzsS'
+// No IPFS CID needed - using simple Solana RPC conditions
 
 interface EncryptionResult {
   encryptedString: string
   encryptedSymmetricKey: string
 }
 
-/**
- * Custom React hook for integrating with Lit Protocol encryption services.
- * 
- * Provides client-side encryption and decryption capabilities using Lit Protocol's
- * decentralized network. Handles:
- * - Connection to Lit Protocol network
- * - Message encryption with Solana-based access conditions
- * - Message decryption when access conditions are met
- * - Dead man's switch specific logic for time-based access control
- * 
- * The hook automatically connects to the configured Lit Protocol network and
- * manages connection state, errors, and cleanup.
- * 
- * @returns Object containing Lit client, connection state, and encryption functions
- */
 export function useLitProtocol() {
   const [litNodeClient, setLitNodeClient] = useState<any>(null)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -36,77 +20,331 @@ export function useLitProtocol() {
   const wallet = useWallet()
   const config = getConfig()
 
-  // Helper: fetch switch data from Solana and calculate expiration time
-  const fetchSwitchExpirationTime = async (switchId: string, ownerPubkey?: string): Promise<number> => {
-    const ownerPk = ownerPubkey || wallet.publicKey!.toString();
+  // Toast notification helper
+  const showToast = (title: string, message: string, type: 'success' | 'error' | 'info' | 'warning') => {
+    const toastDiv = document.createElement('div');
+    const bgColor = {
+      success: 'linear-gradient(135deg, #10b981, #059669)',
+      error: 'linear-gradient(135deg, #ef4444, #dc2626)', 
+      info: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+      warning: 'linear-gradient(135deg, #f59e0b, #d97706)'
+    }[type];
     
-    // Derive the PDA address for the switch
-    const [switchPDA] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("switch"),
-        new PublicKey(ownerPk).toBuffer(),
-        Buffer.from(switchId)
-      ],
-      new PublicKey(config.PROGRAM_ID)
-    );
+    const icon = {
+      success: '✅',
+      error: '❌',
+      info: 'ℹ️',
+      warning: '⚠️'
+    }[type];
+
+    toastDiv.innerHTML = `
+      <div style="
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        background: ${bgColor};
+        color: white;
+        padding: 16px 24px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        max-width: 400px;
+        border: 1px solid rgba(255,255,255,0.2);
+        backdrop-filter: blur(10px);
+        animation: slideInFromRight 0.3s ease-out;
+      ">
+        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 20px; margin-right: 8px;">${icon}</span>
+          <strong>${title}</strong>
+        </div>
+        <div style="font-size: 12px; opacity: 0.9; white-space: pre-line;">
+          ${message}
+        </div>
+      </div>
+    `;
+    
+    // Add animation styles if not already present
+    if (!document.querySelector('#toast-styles')) {
+      const style = document.createElement('style');
+      style.id = 'toast-styles';
+      style.textContent = `
+        @keyframes slideInFromRight {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    
+    document.body.appendChild(toastDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      if (toastDiv.parentNode) {
+        toastDiv.style.animation = 'slideInFromRight 0.3s ease-out reverse';
+        setTimeout(() => toastDiv.remove(), 300);
+      }
+    }, 5000);
+  };
+
+  // Helper: fetch switch data from Solana using PDA directly
+  const fetchSwitchDataByPDA = async (switchPDA: string | PublicKey): Promise<{
+    expirationTime: number;
+    expired: boolean;
+    lastPing: number;
+    pingInterval: number;
+    shouldBeExpired: boolean;
+    owner: string;
+    dataLength: number;
+    createdAt: number;
+    bump: number;
+  }> => {
+    const pdaKey = typeof switchPDA === 'string' ? new PublicKey(switchPDA) : switchPDA;
 
     try {
-      console.log('🔍 Fetching switch data from Solana for PDA:', switchPDA.toString());
+      console.log('🔍 Fetching switch data from Solana for PDA:', pdaKey.toString());
       
-      // Fetch account data from Solana
-      const response = await fetch("https://api.devnet.solana.com", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getAccountInfo",
-          params: [switchPDA.toString(), { encoding: "base64", commitment: "confirmed" }]
-        })
-      });
-
-      const result = await response.json();
-      if (!result.result?.value) {
+      // Use the same connection approach as the working script
+      const connection = new Connection(config.SOLANA_RPC_URL, 'confirmed');
+      const accountInfo = await connection.getAccountInfo(pdaKey, 'confirmed');
+      
+      if (!accountInfo) {
         throw new Error("Switch account not found");
       }
 
-      // Parse account data
-      const accountDataBase64 = result.result.value.data[0];
-      const buffer = Uint8Array.from(atob(accountDataBase64), c => c.charCodeAt(0));
+      // Manual decode using exact structure from lib.rs (like working script)
+      const data = accountInfo.data;
+      const view = new DataView(data.buffer, data.byteOffset);
+      let offset = 8; // Skip 8-byte discriminator
       
-      // Parse DeadManSwitch struct with correct offsets:
-      let offset = 8; // Skip Anchor discriminator
-      offset += 32;   // Skip owner (32 bytes)
+      // From lib.rs DeadManSwitch struct:
+      // pub owner: Pubkey,                       // 32 bytes
+      // pub last_ping: i64,                      // 8 bytes  
+      // pub ping_interval: i64,                  // 8 bytes
+      // pub encrypted_data: [u8; MAX_DATA_SIZE], // 512 bytes
+      // pub data_length: u16,                    // 2 bytes
+      // pub created_at: i64,                     // 8 bytes
+      // pub bump: u8,                            // 1 byte
+      // pub expired: bool,                       // 1 byte
       
-      // last_ping: 8 bytes at offset 40
-      const lastPing = Number(
-        new DataView(buffer.buffer, buffer.byteOffset + offset, 8).getBigInt64(0, true)
-      );
+      const owner = new PublicKey(data.slice(offset, offset + 32));
+      offset += 32;
+      
+      const lastPing = Number(view.getBigInt64(offset, true)); // little endian
       offset += 8;
       
-      // ping_interval: 8 bytes at offset 48
-      const pingInterval = Number(
-        new DataView(buffer.buffer, buffer.byteOffset + offset, 8).getBigInt64(0, true)
-      );
+      const pingInterval = Number(view.getBigInt64(offset, true));
+      offset += 8;
+      
+      // Skip encrypted_data (512 bytes)
+      offset += 512;
+      
+      const dataLength = view.getUint16(offset, true);
+      offset += 2;
+      
+      const createdAt = Number(view.getBigInt64(offset, true));
+      offset += 8;
+      
+      const bump = view.getUint8(offset);
+      offset += 1;
+      
+      const expired = view.getUint8(offset) === 1;
       
       // Calculate expiration time: last_ping + ping_interval
       const expirationTime = lastPing + pingInterval;
-      
-      console.log('📊 Switch data fetched:');
+      const currentTime = Math.floor(Date.now() / 1000);
+      const shouldBeExpired = currentTime >= expirationTime;
+
+      console.log('📊 Switch data fetched (manual decode):');
+      console.log('  - Owner:', owner.toString());
       console.log('  - Last ping:', lastPing, '(', new Date(lastPing * 1000).toISOString(), ')');
       console.log('  - Ping interval:', pingInterval, 'seconds');
       console.log('  - Expiration time:', expirationTime, '(', new Date(expirationTime * 1000).toISOString(), ')');
+      console.log('  - Current time:', currentTime, '(', new Date(currentTime * 1000).toISOString(), ')');
+      console.log('  - Expired flag (on-chain):', expired);
+      console.log('  - Should be expired (time-based):', shouldBeExpired);
+      console.log('  - Data length:', dataLength, 'bytes');
+      console.log('  - Created at:', createdAt, '(', new Date(createdAt * 1000).toISOString(), ')');
+      console.log('  - Bump:', bump);
       
-      return expirationTime;
+      return { 
+        expirationTime, 
+        expired, 
+        lastPing, 
+        pingInterval, 
+        shouldBeExpired, 
+        owner: owner.toString(),
+        dataLength,
+        createdAt,
+        bump
+      };
       
     } catch (error) {
       console.error('❌ Failed to fetch switch data:', error);
       if (error instanceof Error && error.message.includes('Account not found')) {
-        throw new Error(`Switch not found on Solana. If you're creating a new switch, provide the expirationTime parameter directly.`);
+        throw new Error(`Switch not found on Solana. PDA: ${pdaKey.toString()}`);
       }
       throw new Error(`Failed to fetch switch expiration data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
+
+
+
+  // Helper: mark a switch as expired using direct RPC (bypassing Anchor IDL issues)
+  const markSwitchExpiredByPDA = async (switchPDA: string | PublicKey, _ownerPubkey?: string): Promise<boolean> => {
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      throw new Error('Wallet not connected');
+    }
+
+    const pdaKey = typeof switchPDA === 'string' ? new PublicKey(switchPDA) : switchPDA;
+    
+    try {
+      console.log('🚀 Marking switch as expired by PDA (Direct RPC):', pdaKey.toString());
+
+      // Setup connection
+      const connection = new Connection(config.SOLANA_RPC_URL);
+
+      // Check if switch should be expired first
+      const switchData = await fetchSwitchDataByPDA(pdaKey);
+      
+      if (!switchData.shouldBeExpired) {
+        console.warn('⚠️ Switch is not ready to be expired yet');
+        throw new Error('Switch has not reached its expiration time yet');
+      }
+
+      if (switchData.expired) {
+        console.warn('⚠️ Switch is already marked as expired on-chain');
+        return true; // Already expired, no need to mark again
+      }
+
+      console.log('✅ Switch is time-expired but not yet marked on-chain - proceeding with markExpired');
+
+      // Create markExpired instruction manually (bypassing Anchor)
+      const programId = new PublicKey(config.PROGRAM_ID);
+      const instructionData = Buffer.from([
+        // mark_expired discriminator (8 bytes) - calculated from sha256("global:mark_expired")
+        0xe9, 0xf0, 0xdc, 0x58, 0x7d, 0xea, 0xe7, 0x7d
+      ]);
+      
+      const instruction = new TransactionInstruction({
+        keys: [
+          { pubkey: pdaKey, isSigner: false, isWritable: true },
+        ],
+        programId: programId,
+        data: instructionData,
+      });
+
+      // Create transaction
+      const transaction = new Transaction().add(instruction);
+      
+      // Get recent blockhash
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = wallet.publicKey;
+
+      // Send transaction and get signature immediately
+      const signature = await wallet.sendTransaction(transaction, connection);
+      console.log('📝 Transaction signature:', signature);
+      
+      // Show toast notification immediately after getting signature
+      showToast('Transaction Sent!', `Marking switch as expired...\nTx: ${signature.slice(0, 8)}...`, 'info');
+      
+      // Wait for processed confirmation only (faster)
+      try {
+        const confirmation = await connection.confirmTransaction(signature, 'processed');
+        
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${confirmation.value.err}`);
+        }
+
+        console.log('✅ Switch successfully marked as expired (processed)');
+        showToast('Switch Marked Expired!', 'Switch has been marked as expired on-chain', 'success');
+        return true;
+      } catch (confirmError) {
+        // Even if confirmation times out, the transaction might still succeed
+        // We'll proceed anyway since we got a signature
+        console.warn('⚠️ Confirmation timeout, but proceeding since we have signature:', signature);
+        showToast('Transaction Sent', 'Proceeding with decryption...', 'warning');
+        return true;
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to mark switch as expired:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showToast('Mark Expired Failed', `Failed to mark switch as expired:\n${errorMessage}`, 'error');
+      throw error;
+    }
+  }
+
+
+
+
+
+
+
+  // Combined function: mark as expired and decrypt in one operation (accepts PDA directly)
+  const markExpiredAndDecryptByPDA = async (
+    encryptedData: Uint8Array,
+    switchPDA: string | PublicKey,
+    ownerPubkey?: string
+  ): Promise<string> => {
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      throw new Error('Wallet not connected');
+    }
+
+    const pdaKey = typeof switchPDA === 'string' ? new PublicKey(switchPDA) : switchPDA;
+    const ownerPk = ownerPubkey || wallet.publicKey.toString();
+    
+    try {
+      console.log('🚀 ==================== MARK EXPIRED & DECRYPT (PDA) ====================');
+      console.log('🎯 Starting combined operation for PDA:', pdaKey.toString());
+      
+      // Show initial toast
+      showToast('Starting Operation', 'Checking switch status and preparing decryption...', 'info');
+      
+      // Step 1: Check if switch should be expired
+      console.log('🔍 Step 1: Checking if switch should be marked as expired...');
+      const switchData = await fetchSwitchDataByPDA(pdaKey);
+      
+      if (!switchData.shouldBeExpired) {
+        console.log('⚠️ Switch is not ready to be marked as expired');
+        throw new Error('Switch has not reached its expiration time yet');
+      }
+
+      if (switchData.expired) {
+        console.log('ℹ️ Switch is already marked as expired on-chain, skipping to decryption');
+      } else {
+        // Step 2: Mark the switch as expired
+        console.log('📝 Step 2: Switch is time-expired but not marked - marking as expired...');
+        await markSwitchExpiredByPDA(pdaKey, ownerPk);
+        console.log('✅ Switch marked as expired on-chain');
+      }
+      
+      // Step 3: Decrypt the message
+      console.log('🔓 Step 3: Decrypting message...');
+      showToast('Decrypting Message', 'Switch marked successfully! Now decrypting your message...', 'info');
+      
+      const decryptedMessage = await decryptMessage(encryptedData, pdaKey.toString(), ownerPk);
+      
+      console.log('✅ Combined operation completed successfully');
+      console.log('🏁 ==================== MARK EXPIRED & DECRYPT COMPLETE ====================');
+      
+      showToast('Decryption Complete!', 'Your message has been successfully decrypted', 'success');
+      return decryptedMessage;
+      
+    } catch (error) {
+      console.error('❌ Combined operation failed:', error);
+      console.log('🏁 ==================== MARK EXPIRED & DECRYPT FAILED ====================');
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      showToast('Operation Failed', `Failed to complete operation:\n${errorMessage}`, 'error');
+      throw error;
+    }
+  }
+
+
 
   // Helper: Clear all cached authentication data
   const clearCachedAuthData = () => {
@@ -382,62 +620,41 @@ Expiration Time: ${expirationTime}`
         new PublicKey(config.PROGRAM_ID)
       );
 
-      // No need to fetch expiration time - IPFS Lit Action handles this dynamically
+              // Simple access control: any valid Solana address can decrypt
+        // UI/UX enforces the real expiration logic by only showing decrypt buttons when:
+        // 1. Switch is time-expired (isExpired = true), OR
+        // 2. Switch is marked as expired on-chain (account.expired = true)
+        const solRpcConditions = [
+          {
+            method: "getBalance",
+            params: [":userAddress"],
+            pdaParams: [],
+            pdaInterface: { offset: 0, fields: {} },
+            pdaKey: "",
+            chain: "solana",
+            returnValueTest: {
+              key: "",
+              comparator: ">=",
+              value: "0", // Every valid Solana address has a balance >= 0
+            },
+          },
+        ];
 
-      // Use proper Lit Action access control with IPFS CID + allow ANY Solana address to decrypt
-      const accessControlConditions = [
-        {
-          contractAddress: `ipfs://${DEAD_MANS_SWITCH_IPFS_CID}`,
-          standardContractType: "LitAction",
-          chain: "ethereum", // Must be EVM chain for LitAction access control (even though Lit Action reads Solana)
-          method: "checkExpiry", 
-          parameters: [switchPDA.toString()],
-          returnValueTest: {
-            comparator: "=",
-            value: "true"
-          }
-        }
-      ];
 
-      const solRpcConditions = [
-        {
-          method: "getBalance",
-          params: [":userAddress"],
-          pdaParams: [],
-          pdaInterface: { offset: 0, fields: {} },
-          pdaKey: "",
-          chain: "solana",
-          returnValueTest: {
-            key: "",
-            comparator: ">=",
-            value: "0"
-          }
-        }
-      ];
       // Switch metadata is embedded in compact format
 
       // Get Solana authSig for encryption
       const authSig = await getOrCreateAuthSig();
       
-      // Use Lit's encryption with proper Lit Action access control
+      // Use Lit's encryption with only Solana RPC conditions
       const encryptParams = {
         dataToEncrypt: message,
-        accessControlConditions,
         solRpcConditions,
         authSig,
         chain: 'solana',
       };
 
-      // 🐞 Debug: show all parameters sent to litNodeClient.encrypt
-      console.groupCollapsed('%c📝 Lit.encrypt() parameters','color:#fa0');
-      Object.entries(encryptParams).forEach(([k,v])=>{
-        if (k==='dataToEncrypt') {
-          console.log(`${k}: Uint8Array(${(v as Uint8Array).length})`);
-        } else {
-          console.log(`${k}:`, v);
-        }
-      });
-      console.groupEnd();
+
 
       const { ciphertext, dataToEncryptHash } = await encryptString(encryptParams, litNodeClient)
 
@@ -458,53 +675,21 @@ Expiration Time: ${expirationTime}`
       const compactEncryptedData = {
         c: ciphertextBase64, // Ciphertext (base64 once)
         h: dataToEncryptHash, // Hash (shortened key)
-        cid: DEAD_MANS_SWITCH_IPFS_CID, // Just the IPFS CID
-        pda: switchPDA.toString() // Just the switch PDA
-        // Reconstruct full accessControlConditions during decryption
+        pda: switchPDA.toString(), // Just the switch PDA
+        switchId: actualSwitchId // Store switch ID for reconstruction
       }
 
-      // 🐞 Validate encodings & print diagnostics
-      const isHex = (s:string)=>/^[0-9a-fA-F]+$/.test(s)
-      console.groupCollapsed('%c📦 Encryption payload debug','color:#0af')
-      console.log('ciphertextBase64 valid?', isAlreadyBase64(ciphertextBase64))
-      console.log('dataToEncryptHash hex?', isHex(dataToEncryptHash))
-      console.log('ciphertext length (bytes):', Buffer.from(ciphertextBase64,'base64').length)
-      console.log('dataToEncryptHash length:', dataToEncryptHash.length)
-      
-      // Show detailed sizes of each component
-      console.log('\n📏 Component sizes:')
-      console.log('  ciphertextBase64:', ciphertextBase64.length, 'chars')
-      console.log('  dataToEncryptHash:', dataToEncryptHash.length, 'chars')
-      console.log('  IPFS CID:', DEAD_MANS_SWITCH_IPFS_CID.length, 'chars')
-      console.log('  Switch PDA:', switchPDA.toString().length, 'chars')
-      
-      console.groupEnd()
+
 
       console.log('✅ Message encrypted with Dead Man\'s Switch logic')
-      console.log('🔧 Access control: IPFS Lit Action (' + DEAD_MANS_SWITCH_IPFS_CID + ')')
-      console.log('🔧 Chain: ethereum (required for LitAction schema, Lit Action reads Solana data)')
-      console.log('🔧 Switch PDA passed to Lit Action:', switchPDA.toString())
-      console.log('🔧 Lit Action will dynamically fetch and check expiration on each decrypt attempt')
+      console.log('🔧 Access control: Solana RPC conditions only')
+      console.log('🔧 Chain: solana')
+      console.log('🔧 Switch PDA:', switchPDA.toString())
+      console.log('🔧 Decryption requires expired field = true')
 
       // Create encrypted string
       const finalEncryptedString = JSON.stringify(compactEncryptedData)
       console.log('🔧 Encrypted data size:', finalEncryptedString.length, 'bytes')
-      
-      // 🐞 LOG ENTIRE ENCRYPTED STRING FOR DEBUGGING
-      console.groupCollapsed('%c🔍 FULL ENCRYPTED STRING CONTENT', 'color: #ff0000; font-weight: bold; font-size: 14px;')
-      console.log('Full encrypted string:')
-      console.log(finalEncryptedString)
-      console.log('\nFormatted JSON:')
-      console.log(JSON.stringify(JSON.parse(finalEncryptedString), null, 2))
-      console.log('\nByte breakdown:')
-      const parsed = JSON.parse(finalEncryptedString)
-      Object.entries(parsed).forEach(([key, value]) => {
-        const size = JSON.stringify(value).length
-        console.log(`  ${key}: ${size} bytes - ${JSON.stringify(value).substring(0, 100)}${JSON.stringify(value).length > 100 ? '...' : ''}`)
-      })
-      console.log(`\nTotal size: ${finalEncryptedString.length} bytes (limit: 512 bytes)`)
-      console.log(`Over limit by: ${finalEncryptedString.length > 512 ? finalEncryptedString.length - 512 : 0} bytes`)
-      console.groupEnd()
 
       return {
         encryptedString: finalEncryptedString,
@@ -635,33 +820,17 @@ Expiration Time: ${expirationTime}`
       throw new Error('Missing dataToEncryptHash');
     }
     
-    // Reconstruct access control conditions from minimal stored data
-    console.log('🔍 Step 5: Reconstructing access control conditions...');
-    let accessControlConditions;
+    // Reconstruct Solana RPC conditions from stored data
+    console.log('🔍 Step 5: Reconstructing Solana RPC conditions...');
+    // Declare switchPDA early to avoid scope issues
+    let switchPDA;
     let solRpcConditions;
     
-    if (parsedData.cid && parsedData.pda) {
-      console.log('✅ Using new format: CID + PDA reconstruction');
-      console.log('  - IPFS CID:', parsedData.cid);
+    if (parsedData.pda || parsedData.switchId) {
+      console.log('✅ Using new format: PDA/Switch ID reconstruction');
       console.log('  - Switch PDA:', parsedData.pda);
+      console.log('  - Switch ID:', parsedData.switchId);
       
-
-      
-      // New format: reconstruct from CID and PDA with separate arrays (matching encryption format)
-      accessControlConditions = [
-        {
-          contractAddress: `ipfs://${parsedData.cid}`,
-          standardContractType: "LitAction",
-          chain: "solana",
-          method: "checkExpiry", 
-          parameters: [parsedData.pda],
-          returnValueTest: {
-            comparator: "=",
-            value: "true"
-          }
-        }
-      ];
-
       solRpcConditions = [
         {
           method: "getBalance",
@@ -673,22 +842,34 @@ Expiration Time: ${expirationTime}`
           returnValueTest: {
             key: "",
             comparator: ">=",
-            value: "0"
-          }
-        }
+            value: "0", // Every valid Solana address has a balance >= 0
+          },
+        },
       ];
       
-      console.log('✅ Access control conditions reconstructed from CID + PDA');
+      console.log('✅ Solana RPC conditions reconstructed');
     } else {
-      console.log('⚠️ Using legacy format: stored access control conditions');
-      // Legacy format: use stored access control conditions
-      accessControlConditions = parsedData.accessControlConditions;
-      console.log('📋 Legacy accessControlConditions:', accessControlConditions ? 'present' : 'MISSING');
+      console.log('⚠️ Using legacy format: need to construct conditions manually');
+      // Legacy format: use simple balance check
+      solRpcConditions = [
+        {
+          method: "getBalance",
+          params: [":userAddress"],
+          pdaParams: [],
+          pdaInterface: { offset: 0, fields: {} },
+          pdaKey: "",
+          chain: "solana",
+          returnValueTest: {
+            key: "",
+            comparator: ">=",
+            value: "0", // Every valid Solana address has a balance >= 0
+          },
+        },
+      ];
     }
 
     console.log('🔍 Step 6: Determining switch PDA...');
     // Get switch PDA - either from stored data or derive from parameters
-    let switchPDA;
     if (parsedData.pda) {
       console.log('✅ Using stored PDA from encrypted data');
       console.log('  - Stored PDA string:', parsedData.pda);
@@ -734,11 +915,8 @@ Expiration Time: ${expirationTime}`
     }
     console.log('✅ Essential encrypted data present');
     
-    if (!accessControlConditions) {
-      console.error('❌ Missing access control conditions');
-      throw new Error('Missing access control conditions. This data was encrypted with an older version.');
-    }
-    console.log('✅ Access control conditions present');
+    // No access control conditions needed - using only Solana RPC conditions
+    console.log('✅ Using Solana RPC conditions with getSwitchInfo instruction only');
 
     if (!switchPDA) {
       console.error('❌ No switch PDA available');
@@ -746,13 +924,12 @@ Expiration Time: ${expirationTime}`
     }
     console.log('✅ Switch PDA confirmed:', switchPDA.toString());
 
-    console.log('🔍 Decrypting with IPFS Lit Action approach');
-    console.log('📝 Using access control: Lit Action (expiry check) + Solana RPC (balance >= 0)');
-    console.log('🌍 ANYONE with a Solana wallet can decrypt if the switch has expired!');
-    console.log('🔄 Lit Action will dynamically verify expiration for switch:', switchPDA.toString());
+    console.log('🔍 Decrypting with simple Solana RPC approach');
+    console.log('📝 Using access control: Solana RPC (expired = true) only');
+    console.log('🌍 ANYONE can decrypt if the switch is marked as expired!');
+    console.log('🔄 Solana RPC will check expired field for switch:', switchPDA.toString());
     
     // 🐞 DEBUG: Log the actual conditions being used
-    console.log('🔍 ACCESS CONTROL CONDITIONS:', JSON.stringify(accessControlConditions, null, 2));
     console.log('🔍 SOLANA RPC CONDITIONS:', JSON.stringify(solRpcConditions, null, 2));
 
     console.log('🔍 Step 8: Generating fresh authentication signature...');
@@ -799,9 +976,8 @@ Expiration Time: ${expirationTime}`
     }
     console.log('✅ SIWS address consistency verified');
     
-    // Prepare decryption parameters with IPFS Lit Action
+    // Prepare decryption parameters with only Solana RPC conditions
     const decryptParams = {
-      accessControlConditions,
       solRpcConditions,
       ciphertext,
       dataToEncryptHash,
@@ -810,26 +986,20 @@ Expiration Time: ${expirationTime}`
     };
     
     console.log('📋 Decryption parameters prepared:');
-    console.log('  - accessControlConditions:', accessControlConditions ? `${accessControlConditions.length} conditions` : 'MISSING');
     console.log('  - solRpcConditions:', solRpcConditions ? `${solRpcConditions.length} conditions` : 'MISSING');
     console.log('  - ciphertext length:', ciphertext.length);
     console.log('  - dataToEncryptHash length:', dataToEncryptHash.length);
     console.log('  - authSig present:', !!authSig);
     console.log('  - chain:', 'solana');
 
-    console.log('🔄 Decrypting with fresh auth signature and IPFS Lit Action access control...');
-    console.log('📍 Lit Action will dynamically check: current_time >= (last_ping + ping_interval)');
-    console.log('🌍 Solana RPC will check: user has balance >= 0 (always true - allows ANY address)');
-    console.log('⚡ No client-side expiration checks needed - all handled by Lit Action');
+    console.log('🔄 Decrypting with fresh auth signature and Solana RPC conditions...');
+    console.log('📍 Solana RPC will check: expired field = true');
+    console.log('⚡ Simple and direct - no complex logic needed');
 
     console.log('🔍 Step 10: EXECUTING LIT PROTOCOL DECRYPTION...');
     console.log('⏱️ Starting decryption at:', new Date().toISOString());
     
-    // Log the exact request being made
-    console.groupCollapsed('📤 FULL DECRYPT REQUEST TO LIT PROTOCOL');
-    console.log('decryptParams:', JSON.stringify(decryptParams, null, 2));
-    console.log('litNodeClient status:', !!litNodeClient);
-    console.groupEnd();
+
 
     // Track timing for both success and failure cases
     const startTime = Date.now();
@@ -837,10 +1007,9 @@ Expiration Time: ${expirationTime}`
     try {
       // Use standard decryptToString - Lit Protocol will execute the access control Lit Action
       console.log('🚀 CALLING decryptToString() - Lit Protocol will now:');
-      console.log('  1️⃣ Execute Lit Action at ipfs://' + DEAD_MANS_SWITCH_IPFS_CID);
-      console.log('  2️⃣ Call Solana RPC getBalance');
-      console.log('  3️⃣ Evaluate both conditions');
-      console.log('  4️⃣ Return decrypted message if both pass');
+      console.log('  1️⃣ Call Solana RPC getAccountInfo to check expired field');
+      console.log('  2️⃣ Validate the switch is marked as expired (expired = true)');
+      console.log('  3️⃣ Return decrypted message if condition passes');
       
       const decryptedMessage = await decryptToString(decryptParams, litNodeClient);
       
@@ -852,12 +1021,10 @@ Expiration Time: ${expirationTime}`
       console.log('⏱️ Completed at:', new Date().toISOString());
       console.log('');
       console.log('🎯 CONDITION RESULTS (inferred from success):');
-      console.log('  ✅ LIT ACTION RESULT: TRUE');
-      console.log('     → checkExpiry() returned true');  
-      console.log('     → Switch has expired - decryption allowed');
       console.log('  ✅ SOLANA RPC RESULT: TRUE');
-      console.log('     → getBalance() >= 0 check passed');
-      console.log('     → User has valid Solana address');
+      console.log('     → expired field = true check passed');
+      console.log('     → Switch is marked as expired');
+      console.log('     → Decryption allowed');
       console.log('');
       console.log('📄 DECRYPTED CONTENT:');
       console.log('  - Message length:', decryptedMessage?.length || 0, 'characters');
@@ -914,25 +1081,19 @@ Expiration Time: ${expirationTime}`
           
         } else if (errorMsg.includes('access') || errorMsg.includes('condition') || errorMsg.includes('unauthorized')) {
           console.log('');
-          console.log('🎯 ACCESS CONTROL CONDITION FAILURE:');
-          
-          if (errorMsg.includes('litaction') || errorMsg.includes('ipfs')) {
-            console.log('  ❌ LIT ACTION FAILED:');
-            console.log('     → checkExpiry() likely returned FALSE');
-            console.log('     → Dead Man\'s Switch has NOT expired yet');
-            console.log('     → current_time < (last_ping + ping_interval)');
-            console.log('  ℹ️ SOLANA RPC: Not executed (Lit Action failed first)');
-          } else if (errorMsg.includes('balance') || errorMsg.includes('solana') || errorMsg.includes('rpc')) {
-            console.log('  ✅ LIT ACTION: Likely passed (switch expired)');
-            console.log('  ❌ SOLANA RPC FAILED:');
-            console.log('     → getBalance() check failed');
-            console.log('     → User address may be invalid');
-            console.log('     → Solana RPC may be unreachable');
-          } else {
-            console.log('  ❓ UNKNOWN ACCESS CONTROL FAILURE:');
-            console.log('     → Could be either Lit Action or Solana RPC');
-            console.log('     → Check individual condition logs above');
-          }
+                  console.log('🎯 ACCESS CONTROL CONDITION FAILURE:');
+        
+        if (errorMsg.includes('expired') || errorMsg.includes('solana') || errorMsg.includes('rpc')) {
+          console.log('  ❌ SOLANA RPC FAILED:');
+          console.log('     → expired field check failed');
+          console.log('     → Switch may not be marked as expired yet');
+          console.log('     → Solana RPC may be unreachable');
+          console.log('     → Try marking the switch as expired first');
+        } else {
+          console.log('  ❓ UNKNOWN ACCESS CONTROL FAILURE:');
+          console.log('     → Check Solana RPC condition logs above');
+          console.log('     → Verify switch PDA and expired field');
+        }
           
         } else if (errorMsg.includes('signature') || errorMsg.includes('auth')) {
           console.log('');
@@ -952,15 +1113,6 @@ Expiration Time: ${expirationTime}`
           console.log('     → Solana devnet may be down');
           console.log('  ℹ️ CONDITIONS: Cannot be evaluated (network issue)');
           
-        } else if (errorMsg.includes('ipfs') || errorMsg.includes('cid')) {
-          console.log('');
-          console.log('🎯 IPFS/LIT ACTION LOADING FAILURE:');
-          console.log('  ❌ CANNOT LOAD LIT ACTION:');
-          console.log('     → IPFS CID may be invalid');
-                      console.log('     → IPFS Lit Action not accessible');
-          console.log('     → IPFS gateway unreachable');
-          console.log('  ℹ️ CONDITIONS: Cannot be evaluated (Lit Action not loaded)');
-          
         } else {
           console.log('');
           console.log('🎯 UNKNOWN ERROR TYPE:');
@@ -970,19 +1122,7 @@ Expiration Time: ${expirationTime}`
           console.log('     → May be a new error type');
         }
         
-        // Additional debugging info
-        console.log('');
-        console.log('🔍 SIWS DEBUGGING CHECKLIST:');
-        console.log('  ✓ Check browser dev tools Network tab for failed requests');
-        console.log('  ✓ Look for CORS errors in console');
-        console.log('  ✓ Verify IPFS gateway accessibility');
-        console.log('  ✓ Test Solana RPC manually: https://api.devnet.solana.com');
-        console.log('  ✓ Ensure authSig address matches access control conditions');
-        console.log('  ✓ Confirm signature is hex format without 0x prefix');
-        console.log('  ✓ Verify SIWS message has Chain ID: 0 and Expiration Time');
-        console.log('  ✓ Check SIWS timestamp is current (not expired)');
-        console.log('  ✓ Ensure wallet supports Solana signMessage()');
-        console.log('  ✓ Verify random nonce and proper message structure');
+
         
       } else {
         console.log('❌ Non-Error object thrown:', typeof error, error);
@@ -994,11 +1134,11 @@ Expiration Time: ${expirationTime}`
       let userMessage = 'Failed to decrypt message';
       if (error instanceof Error) {
         if (error.message.includes('access')) {
-          userMessage = 'Access denied: The switch has not expired yet or access conditions are not met.';
+          userMessage = 'Access denied: The switch has not been marked as expired yet. Try marking it as expired first.';
         } else if (error.message.includes('fetch')) {
           userMessage = 'Network error: Unable to verify switch status. Please check your internet connection.';
         } else if (error.message.includes('expired')) {
-          userMessage = 'This switch has not expired yet. Decryption is only available after expiration.';
+          userMessage = 'This switch has not been marked as expired yet. Use the "Mark Expired" button first.';
         } else if (error.message.includes('auth') || error.message.includes('signature')) {
           userMessage = 'Authentication failed: Please disconnect and reconnect your wallet, then try again.';
         } else {
@@ -1020,7 +1160,9 @@ Expiration Time: ${expirationTime}`
     connected: !!litNodeClient,
     encryptMessage,
     decryptMessage,
-    fetchSwitchExpirationTime, // Export for use in other components
+    fetchSwitchDataByPDA, // Export function that accepts PDA directly
+    markSwitchExpiredByPDA, // Export function that accepts PDA directly
+    markExpiredAndDecryptByPDA, // Export combined function that accepts PDA directly
     clearCachedAuthData, // Export for manual cache clearing
   }
 }

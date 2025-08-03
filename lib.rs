@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("DGem8q4roVXeWd2TspeusigCoX28K7DbwhvWN6qy9hgU");
+declare_id!("AommrqkSe6eq2xqV8VoXKMd3zpY6sEoHHgFNbCjXBLeX");
 
 // Constants
 const MAX_PING_INTERVAL: i64 = 365 * 24 * 60 * 60; // 1 year
@@ -37,6 +37,7 @@ mod dead_mans_switch {
         switch.owner = *ctx.accounts.owner.key;
         switch.last_ping = current_time;
         switch.ping_interval = ping_interval;
+        switch.expired = false; // Initialize as active
 
         // Copy encrypted data to fixed array
         switch.encrypted_data = [0u8; MAX_DATA_SIZE];
@@ -71,7 +72,9 @@ mod dead_mans_switch {
         require!(!is_expired(switch, current_time), ErrorCode::Expired);
         require!(current_time >= switch.last_ping, ErrorCode::InvalidTimestamp);
 
+        // Update state
         switch.last_ping = current_time;
+        switch.expired = false; // Reset expiration status
 
         let new_expiration = current_time
             .checked_add(switch.ping_interval)
@@ -83,6 +86,23 @@ mod dead_mans_switch {
             next_required_ping: new_expiration,
             timestamp: current_time,
         });
+
+        Ok(())
+    }
+
+    /// Manually marks a switch as expired (can be called by anyone)
+    pub fn mark_expired(ctx: Context<MarkExpired>) -> Result<()> {
+        let switch = &mut ctx.accounts.switch;
+        let current_time = Clock::get()?.unix_timestamp;
+
+        // Only mark if actually expired and not already marked
+        if is_expired(switch, current_time) && !switch.expired {
+            switch.expired = true;
+            emit!(SwitchExpired {
+                switch: switch.key(),
+                timestamp: current_time,
+            });
+        }
 
         Ok(())
     }
@@ -115,8 +135,6 @@ mod dead_mans_switch {
             current_time,
         })
     }
-
-
 }
 
 /// Checks if a switch is expired
@@ -137,6 +155,7 @@ pub struct DeadManSwitch {
     pub data_length: u16,                    // Actual data length (2 bytes)
     pub created_at: i64,                     // Creation timestamp (8 bytes)
     pub bump: u8,                            // PDA bump (1 byte)
+    pub expired: bool,                       // Expiration status (1 byte)
 }
 
 impl DeadManSwitch {
@@ -166,7 +185,8 @@ pub struct CreateSwitch<'info> {
     #[account(
         init,
         payer = owner,
-        space = 8 + 32 + 8 + 8 + MAX_DATA_SIZE + 2 + 8 + 1,
+        // Increased space by 1 byte for expired flag
+        space = 8 + 32 + 8 + 8 + MAX_DATA_SIZE + 2 + 8 + 1 + 1,
         seeds = [b"switch", owner.key.as_ref(), &id.to_le_bytes()],
         bump
     )]
@@ -188,6 +208,12 @@ pub struct Ping<'info> {
 }
 
 #[derive(Accounts)]
+pub struct MarkExpired<'info> {
+    #[account(mut)]
+    pub switch: Account<'info, DeadManSwitch>,
+}
+
+#[derive(Accounts)]
 pub struct CheckExpiration<'info> {
     pub switch: Account<'info, DeadManSwitch>,
 }
@@ -196,8 +222,6 @@ pub struct CheckExpiration<'info> {
 pub struct GetSwitchInfo<'info> {
     pub switch: Account<'info, DeadManSwitch>,
 }
-
-
 
 // ===== Events ===== //
 
@@ -219,7 +243,11 @@ pub struct SwitchPinged {
     pub timestamp: i64,          // Ping timestamp
 }
 
-
+#[event]
+pub struct SwitchExpired {
+    pub switch: Pubkey,          // Switch account address
+    pub timestamp: i64,          // Expiration timestamp
+}
 
 // ===== Error Codes ===== //
 

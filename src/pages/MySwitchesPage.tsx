@@ -148,7 +148,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onDecrypt, isPinging
           </button>
         )}
 
-        {isExpired && account.dataLength > 0 && (
+        {account.expired && account.dataLength > 0 && (
           <button
             onClick={() => onDecrypt(publicKey)}
             disabled={isDecrypting}
@@ -162,7 +162,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onPing, onDecrypt, isPinging
             ) : (
               <>
                 <span>🔓</span>
-                <span>Decrypt Message</span>
+                <span>Decrypt Expired Message</span>
               </>
             )}
           </button>

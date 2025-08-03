@@ -130,8 +130,8 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
         </div>
       </div>
 
-      {/* Decrypt section (only for expired switches with data) */}
-      {isExpired && account.dataLength > 0 && (
+      {/* Decrypt section (only for switches marked as expired with data) */}
+      {account.expired && account.dataLength > 0 && (
         <div className="mt-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
           <div className="flex justify-between items-center mb-3">
             <h4 className="text-white font-medium">🔓 Unlock Secret Message</h4>
@@ -140,7 +140,7 @@ const SwitchCard: FC<SwitchCardProps> = ({ switch_, onDecrypt, isDecrypting }) =
               disabled={isDecrypting}
               className="bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
-              {isDecrypting ? 'Decrypting…' : 'Decrypt Message'}
+              {isDecrypting ? 'Decrypting…' : 'Decrypt Expired Message'}
             </button>
           </div>
 
