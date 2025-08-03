@@ -54,7 +54,7 @@ const AboutPage: FC = () => (
     <h1 className="text-3xl font-bold text-white mb-4">About</h1>
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">Dead Man's Switch dApp</h2>
+        <h2 className="text-xl font-semibold text-white mb-4">DeadMan on Sol</h2>
         <p className="text-gray-300 mb-4">
           A decentralized application built on the Solana blockchain that allows users to create 
           time-locked encrypted secrets. If the user fails to check in within a specified time 

@@ -129,7 +129,7 @@ export const Layout: FC<Props> = ({ children }) => {
                 </div>
                 <div>
                   <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                    Dead Man's Switch
+                    DeadMan on Sol
                   </h1>
                   <p className="text-xs text-gray-400">Decentralized Secrets</p>
                 </div>

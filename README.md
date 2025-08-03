@@ -27,7 +27,7 @@ Edit `.env.local` with your configuration:
 ```env
 VITE_SOLANA_NETWORK=devnet
 VITE_SOLANA_RPC_URL=https://api.devnet.solana.com
-VITE_PROGRAM_ID=21Tkms6a8wJg5KoFTsogCqxTpP8EK2AJH8gYbA4GtFyB
+VITE_PROGRAM_ID=f9kTeCnUyNX3Pg43d7DtjNixVYHLBynCY5ukfXDXcrs
 VITE_LIT_NETWORK=datil-dev
 ```
 
@@ -131,7 +131,7 @@ npm run check:deployment # Verify deployment
 
 ### Required Variables
 ```env
-VITE_PROGRAM_ID=21Tkms6a8wJg5KoFTsogCqxTpP8EK2AJH8gYbA4GtFyB
+VITE_PROGRAM_ID=f9kTeCnUyNX3Pg43d7DtjNixVYHLBynCY5ukfXDXcrs
 ```
 
 ### Optional Variables

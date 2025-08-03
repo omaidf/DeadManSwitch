@@ -2,6 +2,7 @@ import { FC } from 'react'
 import { Link } from 'react-router-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { NetworkStatus } from '../components/NetworkStatus'
+import { FaGithub, FaTwitter, FaFilePdf } from 'react-icons/fa'
 
 /**
  * Landing page component that introduces the Dead Man's Switch application.
@@ -32,10 +33,10 @@ export const HomePage: FC = () => {
           <div className="text-center">
             <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl">
               <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                Dead Man's Switch
+                DeadMan on Sol
               </span>
             </h1>
-            <p className="mt-6 text-lg leading-8 text-gray-300 max-w-3xl mx-auto">
+            <p className="mt-6 text-lg leading-8 text-white max-w-3xl mx-auto">
               Create encrypted secrets that automatically reveal when you're away. 
               A decentralized, trustless system built on Solana blockchain that ensures 
               your important information reaches the right people at the right time.
@@ -70,13 +71,34 @@ export const HomePage: FC = () => {
         </div>
       </div>
 
+      {/* Social Links Section */}
+      <div className="py-12 sm:py-16 text-center">
+        <h2 className="text-2xl font-bold text-white sm:text-3xl mb-4">
+          Join the Community
+        </h2>
+                  <p className="text-lg text-white mb-8">
+          Follow us on social media and check out our whitepaper.
+        </p>
+        <div className="flex justify-center space-x-8">
+          <a href="https://github.com/0xWizzzz/DeadManSwitch" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
+            <FaGithub className="w-10 h-10 text-purple-400 hover:text-purple-300" />
+          </a>
+          <a href="https://x.com/deadmanonsol" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
+            <FaTwitter className="w-10 h-10 text-sky-400 hover:text-sky-300" />
+          </a>
+          <a href="/whitepaper.pdf" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">
+            <FaFilePdf className="w-10 h-10 text-red-400 hover:text-red-300" />
+          </a>
+        </div>
+      </div>
+
       {/* Features Section */}
       <div className="py-16 sm:py-24">
         <div className="text-center mb-16">
           <h2 className="text-3xl font-bold text-white sm:text-4xl">
             How It Works
           </h2>
-          <p className="mt-4 text-lg text-gray-300">
+          <p className="mt-4 text-lg text-white">
             Three simple steps to secure your secrets
           </p>
         </div>
@@ -120,6 +142,68 @@ export const HomePage: FC = () => {
         </div>
       </div>
 
+      {/* Roadmap Section */}
+      <div className="py-16 sm:py-24">
+        <div className="text-center mb-16">
+          <h2 className="text-3xl font-bold text-white sm:text-4xl">
+            Development Roadmap
+          </h2>
+          <p className="mt-4 text-lg text-white">
+            Our journey to complete decentralization
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Phase 1 */}
+          <div className="glassmorphism p-8 text-center group hover:scale-105 transition-transform duration-300">
+            <div className="w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-2xl">✅</span>
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-4">Phase 1</h3>
+            <p className="text-green-400 font-semibold mb-2">COMPLETED</p>
+            <p className="text-gray-300">
+              Launch on DevNet
+            </p>
+          </div>
+
+          {/* Phase 2 - Current */}
+          <div className="glassmorphism p-8 text-center group hover:scale-105 transition-transform duration-300 border-2 border-purple-400/50 shadow-lg shadow-purple-400/20">
+            <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-2xl">🔄</span>
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-4">Phase 2</h3>
+            <p className="text-purple-400 font-bold text-lg mb-2">CURRENT PHASE</p>
+            <p className="text-gray-300">
+              <strong>Apply for Lit Protocol Grant</strong>
+            </p>
+          </div>
+
+          {/* Phase 3 */}
+          <div className="glassmorphism p-8 text-center group hover:scale-105 transition-transform duration-300">
+            <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-2xl">🚀</span>
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-4">Phase 3</h3>
+            <p className="text-blue-400 font-semibold mb-2">UPCOMING</p>
+            <p className="text-gray-300">
+              Launch on Mainnet
+            </p>
+          </div>
+
+          {/* Phase 4 */}
+          <div className="glassmorphism p-8 text-center group hover:scale-105 transition-transform duration-300">
+            <div className="w-16 h-16 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-2xl">🌐</span>
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-4">Phase 4</h3>
+            <p className="text-orange-400 font-semibold mb-2">FUTURE</p>
+            <p className="text-gray-300">
+              100% decentralization on IPFS - similar to Tornado Cash
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Statistics Section */}
       <div className="py-16 sm:py-24 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-y border-purple-500/20">
         <div className="text-center">
@@ -137,73 +221,6 @@ export const HomePage: FC = () => {
               <div className="text-4xl font-bold text-blue-400 mb-2">156</div>
               <div className="text-gray-300">Total Users</div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Technology Section */}
-      <div className="py-16 sm:py-24">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl font-bold text-white sm:text-4xl">
-            Built on Cutting-Edge Technology
-          </h2>
-          <p className="mt-4 text-lg text-gray-300">
-            Leveraging the best in blockchain and encryption
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-          <div className="glassmorphism p-8">
-            <div className="flex items-center mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-violet-500 rounded-lg flex items-center justify-center mr-4">
-                <span className="text-xl">⚡</span>
-              </div>
-              <h3 className="text-xl font-semibold text-white">Solana Blockchain</h3>
-            </div>
-            <p className="text-gray-300">
-              Fast, secure, and cost-effective transactions. Your switches are stored 
-              on-chain with cryptographic guarantees of immutability and transparency.
-            </p>
-          </div>
-
-          <div className="glassmorphism p-8">
-            <div className="flex items-center mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-rose-500 rounded-lg flex items-center justify-center mr-4">
-                <span className="text-xl">🔐</span>
-              </div>
-              <h3 className="text-xl font-semibold text-white">Lit Protocol Encryption</h3>
-            </div>
-            <p className="text-gray-300">
-              Your secrets are encrypted using Lit Protocol with time-based 
-              access control that ensures they're only revealed when conditions are met.
-            </p>
-          </div>
-        </div>
-
-        {/* Whitepaper Section */}
-        <div className="mt-12 text-center">
-          <div className="glassmorphism p-8 inline-block">
-            <div className="flex items-center justify-center mb-4">
-              <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg flex items-center justify-center mr-4">
-                <span className="text-xl">📄</span>
-              </div>
-              <h3 className="text-xl font-semibold text-white">Technical Documentation</h3>
-            </div>
-            <p className="text-gray-300 mb-6">
-              Dive deep into the technical architecture, security model, and implementation details 
-              of our Dead Man's Switch protocol.
-            </p>
-            <a
-              href="/whitepaper.pdf"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-6 py-3 rounded-lg font-semibold text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 inline-flex items-center space-x-2"
-            >
-              <span>📖 Read Whitepaper</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
           </div>
         </div>
       </div>
@@ -260,7 +277,7 @@ export const HomePage: FC = () => {
           <h2 className="text-3xl font-bold text-white mb-6">
             Ready to Secure Your Secrets?
           </h2>
-          <p className="text-lg text-gray-300 mb-8 max-w-2xl mx-auto">
+          <p className="text-lg text-white mb-8 max-w-2xl mx-auto">
             Join the decentralized revolution in secret management. Create your first 
             dead man's switch today and experience true digital security.
           </p>

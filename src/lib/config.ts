@@ -73,7 +73,7 @@ export function getConfig(): EnvConfig {
   const config = {
     SOLANA_NETWORK: (import.meta.env.VITE_SOLANA_NETWORK || 'devnet') as EnvConfig['SOLANA_NETWORK'],
     SOLANA_RPC_URL: import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-    PROGRAM_ID: import.meta.env.VITE_PROGRAM_ID || 'AommrqkSe6eq2xqV8VoXKMd3zpY6sEoHHgFNbCjXBLeX',
+    PROGRAM_ID: import.meta.env.VITE_PROGRAM_ID || 'f9kTeCnUyNX3Pg43d7DtjNixVYHLBynCY5ukfXDXcrs',
     LIT_NETWORK: (import.meta.env.VITE_LIT_NETWORK || 'datil-dev') as EnvConfig['LIT_NETWORK'],
   }
 
