@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci --only=production && npm install -g serve
 
 # Copy source code
 COPY . .
@@ -20,4 +20,4 @@ RUN npm run build
 EXPOSE 4173
 
 # Start the application
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0"]
+CMD ["npm", "start"]

@@ -25,10 +25,16 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: ['fs', 'net', 'tls'],
-    }
+    },
+    outDir: 'dist',
+    assetsDir: 'assets'
   },
   server: {
     port: 3000,
     open: true
+  },
+  preview: {
+    port: 4173,
+    host: '0.0.0.0'
   }
 })
